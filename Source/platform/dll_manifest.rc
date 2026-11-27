@@ -1,0 +1,4 @@
+// A DLL's manifest has to sit in resource id 2, not 1: with id 1 Windows
+// ignores it when the module is loaded with LoadLibrary, so comctl32 would bind
+// to whatever version the host already has.
+2 24 "app.manifest"

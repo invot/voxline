@@ -1,0 +1,27 @@
+# Build output
+/build/
+/build-*.log
+
+# Binaries
+*.exe
+*.dll
+*.vst3
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.obj
+
+# Local tooling / artifacts
+/.freebuff/
+/voxline/
+.tools/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+compile_commands.json

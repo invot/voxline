@@ -1,3 +1,0 @@
-D:\projects\SightLine\.tools\cmake-3.31.6-windows-x86_64\bin\cmake.exe -E rm -f CMakeFiles\juceaide.dir/objects.a
-D:\projects\SightLine\.tools\mingw64\bin\ar.exe qc CMakeFiles\juceaide.dir/objects.a @CMakeFiles\juceaide.dir\objects1.rsp
-D:\projects\SightLine\.tools\mingw64\bin\c++.exe -include utility -include cstring -include cstdint -include cstdio -include D:/projects/voxline/Source/platform/mingw_uia_shim.h -static -Wl,--whole-archive CMakeFiles\juceaide.dir/objects.a -Wl,--no-whole-archive -o juceaide_artefacts\Debug\juceaide.exe -Wl,--out-implib,juceaide_artefacts\Debug\libjuceaide.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\juceaide.dir\linkLibs.rsp

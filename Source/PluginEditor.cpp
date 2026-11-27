@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "Presets.h"
+#include "ui/Logo.h"
 
 #include <cmath>
 
@@ -143,28 +144,7 @@ void VoxlineEditor::paint (juce::Graphics& g)
     ui::drawPanel (g, header, 14.0f, ui::pal::header);
 
     auto logo = juce::Rectangle<float> (header.getX() + 12.0f, header.getCentreY() - 15.0f, 30.0f, 30.0f);
-    g.setColour (ui::pal::panelSoft);
-    g.fillRoundedRectangle (logo, 8.0f);
-    g.setColour (ui::pal::teal.withAlpha (0.85f));
-    g.drawRoundedRectangle (logo, 8.0f, 1.2f);
-
-    juce::Path wave;
-
-    for (int i = 0; i <= 28; ++i)
-    {
-        const float t = (float) i / 28.0f;
-        const float x = logo.getX() + 7.0f + t * (logo.getWidth() - 14.0f);
-        const float env = 0.55f + 0.45f * std::sin (t * juce::MathConstants<float>::pi);
-        const float y = logo.getCentreY() + std::sin (t * juce::MathConstants<float>::pi * 3.0f) * 5.5f * env;
-
-        if (i == 0)
-            wave.startNewSubPath (x, y);
-        else
-            wave.lineTo (x, y);
-    }
-
-    g.setColour (ui::pal::teal);
-    g.strokePath (wave, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved));
+    ui::drawLogoMark (g, logo);
 
     g.setColour (ui::pal::text);
     g.setFont (ui::uiFont (18.0f, true));

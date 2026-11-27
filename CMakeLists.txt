@@ -82,8 +82,8 @@ if (EXISTS "${VX_JUCE_DIR}/CMakeLists.txt")
         ${VX_WIN_LIBS})
 
     if (WIN32)
-        target_sources(Voxline_Standalone PRIVATE Source/platform/win_manifest.rc)
-        set_source_files_properties(Source/platform/win_manifest.rc PROPERTIES
+        target_sources(Voxline_Standalone PRIVATE Source/platform/win_manifest.rc Source/platform/win_icon.rc)
+        set_source_files_properties(Source/platform/win_manifest.rc Source/platform/win_icon.rc PROPERTIES
             COMPILE_FLAGS "--include-dir=${CMAKE_CURRENT_SOURCE_DIR}/Source/platform")
 
         target_sources(Voxline_VST3 PRIVATE Source/platform/dll_manifest.rc)
@@ -139,6 +139,37 @@ if (EXISTS "${VX_JUCE_DIR}/CMakeLists.txt")
     endif()
 
     set_target_properties(VoxlineSmoke PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
+    # -----------------------------------------------------------------------
+    # Icon generator: draws the interface mark at every Windows icon size and
+    # packs Source/platform/voxline.ico. Run with ./build.sh icon.
+    # -----------------------------------------------------------------------
+    juce_add_console_app(VoxlineIcon PRODUCT_NAME "voxline-icon")
+
+    target_sources(VoxlineIcon PRIVATE Tools/IconGen.cpp)
+
+    if (WIN32)
+        target_sources(VoxlineIcon PRIVATE Source/platform/win_manifest.rc)
+    endif()
+
+    target_include_directories(VoxlineIcon PRIVATE Source)
+
+    target_compile_definitions(VoxlineIcon PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
+
+    target_link_libraries(VoxlineIcon PRIVATE
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags
+        ${VX_WIN_LIBS})
+
+    if (NOT MSVC)
+        target_link_options(VoxlineIcon PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+
+    set_target_properties(VoxlineIcon PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 else()
     message(WARNING "JUCE not found at ${VX_JUCE_DIR}; only the DSP tests will build.")
 endif()

@@ -1,0 +1,3 @@
+// The standalone's shell icon. Generated from the interface mark by
+// ./build.sh icon; see Tools/IconGen.cpp.
+1 ICON "voxline.ico"

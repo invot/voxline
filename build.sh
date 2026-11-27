@@ -4,6 +4,7 @@
 #   ./build.sh              configure (if needed) and build the plugin
 #   ./build.sh tests        build and run the headless DSP checks
 #   ./build.sh smoke        build and run the smoke/snapshot harness
+#   ./build.sh icon         redraw Source/platform/voxline.ico from the UI mark
 #   ./build.sh clean        wipe build/ first
 #
 # Outputs:
@@ -64,6 +65,10 @@ case "${1:-}" in
         cmake --build build --target VoxlineSmoke -j"$JOBS"
         mkdir -p docs/screenshots
         VX_SNAPSHOT_DIR="$ROOT/docs/screenshots" ./build/VoxlineSmoke.exe
+        ;;
+    icon)
+        cmake --build build --target VoxlineIcon -j"$JOBS"
+        ./build/VoxlineIcon.exe Source/platform/voxline.ico docs/screenshots/icon.png
         ;;
     *)
         cmake --build build -j"$JOBS"

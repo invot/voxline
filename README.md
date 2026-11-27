@@ -131,6 +131,7 @@ The project uses the bundled toolchain next to the sibling `SightLine` checkout:
 ./build.sh           # configure if needed, build the VST3 and standalone
 ./build.sh tests     # build and run the headless DSP checks
 ./build.sh smoke     # build and run the processor/editor smoke + screenshots
+./build.sh icon      # redraw Source/platform/voxline.ico from the interface mark
 ./build.sh clean     # remove build/ first
 ```
 
@@ -192,6 +193,7 @@ Source/core/        JUCE-free DSP: tune, EQ, dynamics, drive, motion, delay, FDN
 Source/ui/          Theme, widgets, graphs, and the ChainView (tiles + selected stage)
 Source/             Parameters, presets, processor, editor
 Tests/              main.cpp (DSP checks), smoke.cpp (plugin/editor checks + screenshots)
+Tools/              IconGen.cpp, which draws the app icon from the interface mark
 third_party/        Signalsmith Stretch and Signalsmith Linear (MIT) + licenses
 ci/                 The JUCE 8.0.6 MinGW patch the release build applies
 installer/          Inno Setup script for the Windows installer

@@ -100,9 +100,17 @@ void ReverbModule::updateSize (float size)
 
 void ReverbModule::process (float* l, float* r, int n, const VerbParams& p, const float* duck, float spaceMacro)
 {
-    on = p.on;
-    if (! on)
+    if (! p.on)
+    {
+        on = false;
         return;
+    }
+
+    if (! on)
+    {
+        reset();   // a re-enabled reverb starts clean instead of replaying an old tail
+        on = true;
+    }
 
     if (std::abs (p.size - lastSize) > 0.0005f)
     {

@@ -55,8 +55,8 @@ if (EXISTS "${VX_JUCE_DIR}/CMakeLists.txt")
         Source/PluginEditor.cpp
         Source/Parameters.cpp
         Source/Presets.cpp
-        Source/ui/ShapePage.cpp
-        Source/ui/DetailPage.cpp
+        Source/ui/ChainView.cpp
+        Source/ui/Graphs.cpp
         ${VX_CORE_SOURCES})
 
     target_include_directories(Voxline PRIVATE Source third_party)
@@ -101,7 +101,7 @@ if (EXISTS "${VX_JUCE_DIR}/CMakeLists.txt")
 
     # -----------------------------------------------------------------------
     # Console smoke harness: renders every preset, saves/loads state, and
-    # writes the two editor pages to PNG for a visual check.
+    # writes editor snapshots to PNG for a visual check.
     # -----------------------------------------------------------------------
     add_executable(VoxlineSmoke
         Tests/smoke.cpp
@@ -109,8 +109,8 @@ if (EXISTS "${VX_JUCE_DIR}/CMakeLists.txt")
         Source/PluginEditor.cpp
         Source/Parameters.cpp
         Source/Presets.cpp
-        Source/ui/ShapePage.cpp
-        Source/ui/DetailPage.cpp
+        Source/ui/ChainView.cpp
+        Source/ui/Graphs.cpp
         ${VX_CORE_SOURCES})
 
     target_include_directories(VoxlineSmoke PRIVATE Source third_party)

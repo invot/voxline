@@ -43,6 +43,10 @@ private:
     DelayLine bypassL, bypassR;
     EnvelopeFollower duckFollower;
     std::vector<float> duckScratch;
+    std::vector<float> dryL, dryR;     // latency-matched input for the bypass crossfade
+    Smoothed bypassMix;                // 0 = processed, 1 = dry
+    Smoothed levelGain;
+    bool smoothersPrimed = false;
 
     double sr = 48000.0;
     int maxBlockSize = 512;

@@ -135,7 +135,11 @@ public:
 private:
     double sr = 48000.0;
     int lookahead = 72;
-    DelayLine audioL, audioR, gainLine;
+    DelayLine audioL, audioR;
+    std::vector<float> minValue;      // sliding-minimum queue of gain targets
+    std::vector<long long> minIndex;
+    int minHead = 0, minTail = 0;
+    long long sampleCounter = 0;
     float releaseCoef = 0.0f;
     float gain = 1.0f;
     float lastGr = 0.0f;

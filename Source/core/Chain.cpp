@@ -29,6 +29,11 @@ void VocalChain::prepare (double sampleRate, int maxBlock)
 
     duckFollower.set (sr, 8.0f, 120.0f);
     duckScratch.assign ((size_t) maxBlockSize, 0.0f);
+    dryL.assign ((size_t) maxBlockSize, 0.0f);
+    dryR.assign ((size_t) maxBlockSize, 0.0f);
+
+    bypassMix.setTime (sr, 3.0f);   // one-pole time constant: ~25 ms to settle
+    levelGain.setTime (sr, 20.0f);
 
     meterIn = meterOut = 0.0f;
     reset();
@@ -51,6 +56,7 @@ void VocalChain::reset()
     bypassR.reset();
     duckFollower.reset();
     std::fill (duckScratch.begin(), duckScratch.end(), 0.0f);
+    smoothersPrimed = false;
 
     meterIn = meterOut = 0.0f;
     inMeter.store (0.0f);
@@ -68,45 +74,43 @@ void VocalChain::process (float* l, float* r, int n, const ChainParams& p)
 
     if (n > (int) duckScratch.size())
     {
+        // Hosts should never exceed the prepared block size; survive it anyway.
         duckScratch.resize ((size_t) n);
+        dryL.resize ((size_t) n);
+        dryR.resize ((size_t) n);
         bypassL.prepare (latency + n + 8);
         bypassR.prepare (latency + n + 8);
     }
 
     float peakIn = 0.0f;
 
+    // The dry path is fed on every block, bypassed or not, so engaging bypass
+    // plays the input from exactly `latency` samples ago instead of whatever
+    // was left in the line the last time bypass was used.
     for (int i = 0; i < n; ++i)
+    {
         peakIn = std::max (peakIn, std::max (std::abs (l[i]), std::abs (r[i])));
+
+        dryL[(size_t) i] = bypassL.read ((float) latency);
+        dryR[(size_t) i] = bypassR.read ((float) latency);
+        bypassL.push (l[i]);
+        bypassR.push (r[i]);
+    }
 
     meterIn = std::max (peakIn, meterIn * 0.86f);
 
-    if (p.bypass)
+    if (! smoothersPrimed)
     {
-        float peakOut = 0.0f;
-
-        for (int i = 0; i < n; ++i)
-        {
-            const float inL = l[i], inR = r[i];
-
-            l[i] = bypassL.read ((float) latency);
-            r[i] = bypassR.read ((float) latency);
-
-            bypassL.push (inL);
-            bypassR.push (inR);
-
-            peakOut = std::max (peakOut, std::max (std::abs (l[i]), std::abs (r[i])));
-        }
-
-        meterOut = std::max (peakOut, meterOut * 0.86f);
-        inMeter.store (meterIn);
-        outMeter.store (meterOut);
-        comp1Meter.store (0.0f);
-        comp2Meter.store (0.0f);
-        limiterMeter.store (0.0f);
-        centsMeter.store (0.0f);
-        return;
+        bypassMix.snap (p.bypass ? 1.0f : 0.0f);
+        levelGain.snap (dbToGain (p.levelDb));
+        smoothersPrimed = true;
     }
 
+    bypassMix.target = p.bypass ? 1.0f : 0.0f;
+    levelGain.target = dbToGain (p.levelDb);
+
+    // The chain keeps running under bypass so every stage stays warm and the
+    // switch back is a crossfade, not a jump into stale state.
     tune.process (l, r, n, p.tune);
 
     eq.setParams (p.eq, p.tone);
@@ -137,7 +141,7 @@ void VocalChain::process (float* l, float* r, int n, const ChainParams& p)
     for (int i = 0; i < n; ++i)
     {
         WidthModule::apply (l[i], r[i], p.width);
-        const float g = dbToGain (p.levelDb);
+        const float g = levelGain.next();
         l[i] *= g;
         r[i] *= g;
     }
@@ -145,18 +149,35 @@ void VocalChain::process (float* l, float* r, int n, const ChainParams& p)
     limiter.process (l, r, n, p.limiterOn, p.ceilingDb, p.limiterReleaseMs);
 
     float peakOut = 0.0f;
+    const bool settled = std::abs (bypassMix.value() - bypassMix.target) < 1.0e-4f;
+
+    if (! (settled && bypassMix.target < 0.5f))
+    {
+        for (int i = 0; i < n; ++i)
+        {
+            const float b = bypassMix.next();
+            l[i] += (dryL[(size_t) i] - l[i]) * b;
+            r[i] += (dryR[(size_t) i] - r[i]) * b;
+        }
+
+        // Land exactly on 0 or 1 so a settled bypass is bit-exact dry.
+        if (std::abs (bypassMix.value() - bypassMix.target) < 1.0e-4f)
+            bypassMix.snap (bypassMix.target);
+    }
 
     for (int i = 0; i < n; ++i)
         peakOut = std::max (peakOut, std::max (std::abs (l[i]), std::abs (r[i])));
 
     meterOut = std::max (peakOut, meterOut * 0.86f);
 
+    const bool bypassed = p.bypass && settled;
+
     inMeter.store (meterIn);
     outMeter.store (meterOut);
-    comp1Meter.store (comp1.lastGainReductionDb());
-    comp2Meter.store (comp2.lastGainReductionDb());
-    limiterMeter.store (limiter.lastGainReductionDb());
-    centsMeter.store (tune.shiftCents());
+    comp1Meter.store (bypassed ? 0.0f : comp1.lastGainReductionDb());
+    comp2Meter.store (bypassed ? 0.0f : comp2.lastGainReductionDb());
+    limiterMeter.store (bypassed ? 0.0f : limiter.lastGainReductionDb());
+    centsMeter.store (bypassed ? 0.0f : tune.shiftCents());
 }
 
 } // namespace vx

@@ -78,7 +78,10 @@ void YinDetector::prepare (double sampleRate)
     antiAlias.c = makeLowPass (sr, std::min (1800.0, internalSr * 0.42), 0.70710678);
 
     frame = 1024;
-    hop = std::max (64, (int) (sr * 0.0107));
+    // The hop is counted in decimated samples, so derive it from the internal
+    // rate: ~21 ms (half a frame) at every host rate. Deriving it from the host
+    // rate made it longer than the whole frame at 96 kHz and above.
+    hop = std::max (64, std::min (frame / 2, (int) (internalSr * 0.0213)));
 
     ring.assign ((size_t) frame, 0.0f);
     ordered.assign ((size_t) frame, 0.0f);
@@ -374,7 +377,9 @@ void TuneModule::process (float* l, float* r, int n, const TuneParams& p)
     m = std::min (m, (int) impl->outL.size());
 
     impl->stretch.setTransposeSemitones (0.0f);
-    impl->stretch.setFormantSemitones (-smoothedSemis + p.formant, false);
+    // Switching the module off drops the formant shift and sub-octave too; the
+    // stretcher itself keeps running so the latency never changes.
+    impl->stretch.setFormantSemitones (-smoothedSemis + (p.on ? p.formant : 0.0f), false);
     impl->stretch.setFormantBase (lastHz > 55.0f ? lastHz / (float) sr : 0.0f);
 
     float* in[2] = { l, r };
@@ -437,7 +442,7 @@ void TuneModule::process (float* l, float* r, int n, const TuneParams& p)
     for (int i = 0; i < n; ++i)
         impl->fifoPop (l[i], r[i]);
 
-    const float octMix = clamp01 (p.octaveMix);
+    const float octMix = p.on ? clamp01 (p.octaveMix) : 0.0f;
 
     if (octMix > 0.0005f)
     {

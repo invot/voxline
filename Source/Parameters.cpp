@@ -168,6 +168,9 @@ juce::String formatParamValue (Param p, float value)
         if (value >= 1000.0f)
             return juce::String (value / 1000.0f, 1) + " kHz";
 
+        if (value < 10.0f)
+            return juce::String (value, 2) + " Hz";   // LFO rates: 0.30 Hz, not "0 Hz"
+
         return juce::String (juce::roundToInt (value)) + " Hz";
     }
 

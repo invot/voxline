@@ -33,6 +33,13 @@ inline juce::Font uiFont (float height, bool bold = false)
     return bold ? f.boldened() : f;
 }
 
+/** The middle-dot separator. Built from UTF-8 explicitly: a raw non-ASCII literal
+    passed to juce::String is read as Latin-1 and renders as two characters. */
+inline juce::String sep()
+{
+    return juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  "));
+}
+
 inline void drawPanel (juce::Graphics& g, juce::Rectangle<float> r,
                        float radius = 14.0f, juce::Colour fill = pal::panel)
 {

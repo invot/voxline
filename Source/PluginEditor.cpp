@@ -9,43 +9,21 @@ namespace vx
 VoxlineEditor::VoxlineEditor (VoxlineProcessor& p)
     : AudioProcessorEditor (&p),
       processor (p),
-      shape (p),
-      detail (p)
+      chain (p)
 {
     setLookAndFeel (&lookAndFeel);
     setOpaque (true);
 
-    addAndMakeVisible (tabs);
-    addAndMakeVisible (shape);
-    addAndMakeVisible (detail);
+    addAndMakeVisible (chain);
     addAndMakeVisible (meter);
-    addAndMakeVisible (presetButton);
+    addAndMakeVisible (presetBox);
     addAndMakeVisible (prevButton);
     addAndMakeVisible (nextButton);
     addAndMakeVisible (bypassButton);
     addAndMakeVisible (throwButton);
 
-    detail.setVisible (false);
+    presetBox.onClick = [this] { showPresetMenu(); };
 
-    tabs.onTabChanged = [this] (int index)
-    {
-        shape.setVisible (index == 0);
-        detail.setVisible (index == 1);
-    };
-
-    shape.onOpenModule = [this] (int index)
-    {
-        tabs.setSelected (1, true);
-        detail.selectModule (index);
-    };
-
-    shape.onSelectPreset = [this] (int index) { setPreset (index); };
-
-    presetButton.setTooltip ("Choose a starting point");
-    presetButton.onClick = [this] { showPresetMenu(); };
-
-    prevButton.setButtonText ("<");
-    nextButton.setButtonText (">");
     prevButton.setTooltip ("Previous preset");
     nextButton.setTooltip ("Next preset");
 
@@ -61,20 +39,19 @@ VoxlineEditor::VoxlineEditor (VoxlineProcessor& p)
         setPreset ((processor.getCurrentProgram() + 1) % count);
     };
 
-    bypassButton.setButtonText ("BYPASS");
     bypassButton.setClickingTogglesState (true);
     bypassButton.setColour (juce::TextButton::buttonOnColourId, ui::pal::pink);
-    bypassButton.setTooltip ("Latency-compensated bypass");
+    bypassButton.setTooltip ("Latency-compensated bypass with a short crossfade");
     bypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
         processor.apvts, paramId (Param::Bypass), bypassButton);
 
     throwButton.onHold = [this] (bool held) { processor.setThrowHeld (held); };
 
     setResizable (true, true);
-    setResizeLimits (1100, 720, 1600, 1000);
-    setSize (1180, 800);
+    setResizeLimits (1080, 700, 1700, 1100);
+    setSize (1180, 780);
 
-    refreshPresetDisplay();
+    refreshPresetDisplay (true);
     refreshLatencyText();
     startTimerHz (24);
 }
@@ -82,47 +59,47 @@ VoxlineEditor::VoxlineEditor (VoxlineProcessor& p)
 VoxlineEditor::~VoxlineEditor()
 {
     stopTimer();
+
+    // Closing the editor mid-press must not leave the delay thrown open.
+    throwButton.onHold = nullptr;
+    processor.setThrowHeld (false);
+
     setLookAndFeel (nullptr);
 }
 
 void VoxlineEditor::setPreset (int index)
 {
     processor.setCurrentProgram (index);
-    shownProgram = processor.getCurrentProgram();
-    shape.setSelectedPreset (shownProgram);
-    presetButton.setButtonText (factoryPresetName (shownProgram));
-    presetButton.setTooltip (factoryPresetTag (shownProgram));
-
-    shape.refresh();
-    detail.refresh();
-    repaint();
+    refreshPresetDisplay (true);
+    chain.refresh();
 }
 
-void VoxlineEditor::refreshPresetDisplay()
+void VoxlineEditor::refreshPresetDisplay (bool force)
 {
     const int program = processor.getCurrentProgram();
 
-    if (program == shownProgram)
+    if (program == shownProgram && ! force)
         return;
 
     shownProgram = program;
-    shape.setSelectedPreset (program);
-    presetButton.setButtonText (factoryPresetName (program));
-    presetButton.setTooltip (factoryPresetTag (program));
+    presetBox.setPreset (juce::String (program + 1).paddedLeft ('0', 2) + "  " + factoryPresetName (program),
+                         factoryPresetTag (program));
 }
 
 void VoxlineEditor::showPresetMenu()
 {
     juce::PopupMenu menu;
+    menu.addSectionHeader ("Starting points");
 
     for (int i = 0; i < factoryPresetCount(); ++i)
-        menu.addItem (i + 1, factoryPresetName (i), true, i == processor.getCurrentProgram());
+        menu.addItem (i + 1, factoryPresetName (i) + "    " + factoryPresetTag (i).replace ("  |  ", ui::sep()),
+                      true, i == processor.getCurrentProgram());
 
     auto safe = juce::Component::SafePointer<VoxlineEditor> (this);
 
     menu.showMenuAsync (juce::PopupMenu::Options()
-                            .withTargetComponent (&presetButton)
-                            .withMinimumWidth (210),
+                            .withTargetComponent (&presetBox)
+                            .withMinimumWidth (presetBox.getWidth()),
                         [safe] (int result)
                         {
                             if (safe == nullptr || result <= 0)
@@ -140,13 +117,13 @@ void VoxlineEditor::refreshLatencyText()
     juce::String next = "PDC --";
 
     if (sr > 0.0 && latency > 0)
-        next = "PDC " + juce::String (1000.0 * (double) latency / sr, 1) + " ms  |  "
+        next = "PDC " + juce::String (1000.0 * (double) latency / sr, 1) + " ms" + ui::sep()
              + juce::String (sr / 1000.0, 1) + " kHz";
 
     if (next != latencyText)
     {
         latencyText = next;
-        repaint();
+        repaint (headerArea);
     }
 }
 
@@ -155,18 +132,17 @@ void VoxlineEditor::timerCallback()
     meter.setLevels (processor.inputMeter(), processor.outputMeter());
     refreshPresetDisplay();
     refreshLatencyText();
-    shape.refresh();
-    detail.refresh();
+    chain.refresh();
 }
 
 void VoxlineEditor::paint (juce::Graphics& g)
 {
     g.fillAll (ui::pal::bg);
 
-    auto header = getLocalBounds().removeFromTop (56).reduced (14, 6).toFloat();
+    const auto header = headerArea.toFloat();
     ui::drawPanel (g, header, 14.0f, ui::pal::header);
 
-    auto logo = juce::Rectangle<float> (header.getX() + 14.0f, header.getY() + 8.0f, 30.0f, 30.0f);
+    auto logo = juce::Rectangle<float> (header.getX() + 12.0f, header.getCentreY() - 15.0f, 30.0f, 30.0f);
     g.setColour (ui::pal::panelSoft);
     g.fillRoundedRectangle (logo, 8.0f);
     g.setColour (ui::pal::teal.withAlpha (0.85f));
@@ -192,54 +168,38 @@ void VoxlineEditor::paint (juce::Graphics& g)
 
     g.setColour (ui::pal::text);
     g.setFont (ui::uiFont (18.0f, true));
-    g.drawText ("voxline", logo.getRight() + 10.0f, header.getY() + 5.0f, 150.0f, 22.0f,
+    g.drawText ("voxline", (int) logo.getRight() + 10, (int) logo.getY() - 2, 150, 20,
                 juce::Justification::centredLeft, false);
 
     g.setColour (ui::pal::dim);
-    g.setFont (ui::uiFont (9.5f));
-    g.drawText ("vocal chain", logo.getRight() + 11.0f, header.getY() + 25.0f, 150.0f, 12.0f,
+    g.setFont (ui::uiFont (9.0f));
+    g.drawText (juce::String ("vocal chain") + ui::sep() + latencyText, (int) logo.getRight() + 11, (int) logo.getY() + 18, 240, 12,
                 juce::Justification::centredLeft, false);
-
-    auto footer = getLocalBounds().removeFromBottom (42).reduced (14, 6).toFloat();
-    ui::drawPanel (g, footer, 12.0f, ui::pal::header);
-
-    g.setColour (ui::pal::dim.withAlpha (0.75f));
-    g.setFont (ui::uiFont (8.5f));
-    g.drawText ("SHAPE IS THE FAST VIEW  |  DETAIL HAS EVERY CONTROL",
-                footer.getX() + 14.0f, footer.getY(), footer.getWidth() - 360.0f, footer.getHeight(),
-                juce::Justification::centredLeft, false);
-
-    g.setFont (ui::uiFont (8.5f));
-    g.drawText (latencyText, footer.getRight() - 270.0f, footer.getY(), 180.0f, footer.getHeight(),
-                juce::Justification::centredRight, false);
 }
 
 void VoxlineEditor::resized()
 {
-    auto b = getLocalBounds();
+    auto b = getLocalBounds().reduced (14, 0);
 
-    auto header = b.removeFromTop (56).reduced (14, 6);
-    auto footer = b.removeFromBottom (42).reduced (14, 6);
+    b.removeFromTop (10);
+    headerArea = b.removeFromTop (54);
+    b.removeFromTop (12);
+    b.removeFromBottom (14);
+    chain.setBounds (b);
 
-    auto h = header;
-    bypassButton.setBounds (h.removeFromRight (76).withSizeKeepingCentre (76, 26));
+    auto h = headerArea.reduced (12, 0);
+    bypassButton.setBounds (h.removeFromRight (78).withSizeKeepingCentre (78, 30));
     h.removeFromRight (8);
-    nextButton.setBounds (h.removeFromRight (24).withSizeKeepingCentre (24, 26));
-    presetButton.setBounds (h.removeFromRight (168).withSizeKeepingCentre (168, 26));
-    prevButton.setBounds (h.removeFromRight (24).withSizeKeepingCentre (24, 26));
-    h.removeFromRight (10);
-    meter.setBounds (h.removeFromRight (86).withSizeKeepingCentre (86, 24));
+    throwButton.setBounds (h.removeFromRight (74).withSizeKeepingCentre (74, 30));
+    h.removeFromRight (16);
+    meter.setBounds (h.removeFromRight (110).withSizeKeepingCentre (110, 24));
 
-    auto f = footer;
-    throwButton.setBounds (f.removeFromRight (74).withSizeKeepingCentre (74, 26));
-
-    b.reduce (14, 0);
-    tabs.setBounds (b.removeFromTop (46));
-    b.removeFromTop (8);
-    b.removeFromBottom (8);
-
-    shape.setBounds (b);
-    detail.setBounds (b);
+    // Presets sit in the middle of the header.
+    const int presetW = 300;
+    auto centre = headerArea.withSizeKeepingCentre (presetW + 2 * 34, 36);
+    prevButton.setBounds (centre.removeFromLeft (28).withSizeKeepingCentre (28, 30));
+    nextButton.setBounds (centre.removeFromRight (28).withSizeKeepingCentre (28, 30));
+    presetBox.setBounds (centre.reduced (6, 0));
 }
 
 } // namespace vx

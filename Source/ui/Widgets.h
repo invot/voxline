@@ -14,82 +14,7 @@ namespace vx::ui
 using APVTS = juce::AudioProcessorValueTreeState;
 
 //==============================================================================
-class TabBar : public juce::Component
-{
-public:
-    TabBar (juce::StringArray labels)
-        : tabs (std::move (labels))
-    {
-        setMouseCursor (juce::MouseCursor::PointingHandCursor);
-    }
-
-    std::function<void (int)> onTabChanged;
-
-    void setSelected (int index, bool notify = false)
-    {
-        index = juce::jlimit (0, tabs.size() - 1, index);
-
-        if (selected == index)
-            return;
-
-        selected = index;
-        repaint();
-
-        if (notify && onTabChanged != nullptr)
-            onTabChanged (selected);
-    }
-
-    int getSelected() const { return selected; }
-
-    void paint (juce::Graphics& g) override
-    {
-        auto r = getLocalBounds().toFloat().reduced (0.5f);
-        drawPanel (g, r, 12.0f, pal::header);
-
-        auto area = getLocalBounds().reduced (8, 7);
-        const int w = area.getWidth() / std::max (1, tabs.size());
-
-        for (int i = 0; i < tabs.size(); ++i)
-        {
-            auto tab = area.removeFromLeft (w);
-            const bool on = i == selected;
-
-            if (on)
-            {
-                g.setColour (pal::panelSoft);
-                g.fillRoundedRectangle (tab.toFloat(), 8.0f);
-                g.setColour (pal::teal.withAlpha (0.8f));
-                g.fillRoundedRectangle ((float) tab.getX() + 12.0f,
-                                        (float) tab.getBottom() - 5.0f,
-                                        (float) tab.getWidth() - 24.0f, 2.0f, 1.0f);
-            }
-
-            g.setColour (on ? pal::text : pal::dim);
-            g.setFont (uiFont (12.5f, true));
-            g.drawText (tabs[i].toUpperCase(), tab, juce::Justification::centred, false);
-        }
-    }
-
-    void mouseDown (const juce::MouseEvent& e) override
-    {
-        auto area = getLocalBounds().reduced (8, 7);
-        const int w = area.getWidth() / std::max (1, tabs.size());
-        const int index = juce::jlimit (0, tabs.size() - 1, (e.x - area.getX()) / std::max (1, w));
-
-        if (index != selected)
-        {
-            setSelected (index, true);
-        }
-    }
-
-private:
-    juce::StringArray tabs;
-    int selected = 0;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TabBar)
-};
-
-//==============================================================================
+/** A slider that returns to its parameter default on double-click. */
 class ResetSlider : public juce::Slider
 {
 public:
@@ -107,6 +32,7 @@ private:
 };
 
 //==============================================================================
+/** The one big knob on each effect tile. Draws its value in the centre. */
 class KnobSlider : public ResetSlider
 {
 public:
@@ -116,23 +42,29 @@ public:
         setSliderStyle (juce::Slider::RotaryVerticalDrag);
         setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         setMouseDragSensitivity (220);
-        setRotaryParameters (3.92699f, 8.63938f, true);
+        setRotaryParameters (kStart, kEnd, true);
         setWantsKeyboardFocus (false);
     }
 
     std::function<juce::String (float)> format;
 
+    void setDimmed (bool shouldDim)
+    {
+        if (dimmed != shouldDim)
+        {
+            dimmed = shouldDim;
+            repaint();
+        }
+    }
+
     void paint (juce::Graphics& g) override
     {
-        auto b = getLocalBounds().toFloat().reduced (4.0f);
+        auto b = getLocalBounds().toFloat().reduced (3.0f);
         const float d = std::min (b.getWidth(), b.getHeight());
         auto circle = juce::Rectangle<float> (d, d).withCentre (b.getCentre());
 
-        const float start = 3.92699f;
-        const float end   = 8.63938f;
-        const float t     = (float) ((getValue() - getMinimum())
-                                     / std::max (1.0e-9, getMaximum() - getMinimum()));
-        const float angle = start + juce::jlimit (0.0f, 1.0f, t) * (end - start);
+        const float t     = (float) valueToProportionOfLength (getValue());
+        const float angle = kStart + juce::jlimit (0.0f, 1.0f, t) * (kEnd - kStart);
 
         const auto arc = [&circle] (float from, float to)
         {
@@ -144,16 +76,15 @@ public:
             return p;
         };
 
-        g.setColour (pal::stroke);
-        g.strokePath (arc (start, end),
-                      juce::PathStrokeType (5.0f, juce::PathStrokeType::curved,
-                                            juce::PathStrokeType::rounded));
-        g.setColour (accent.withAlpha (0.92f));
-        g.strokePath (arc (start, angle),
-                      juce::PathStrokeType (5.0f, juce::PathStrokeType::curved,
-                                            juce::PathStrokeType::rounded));
+        const juce::PathStrokeType stroke (4.5f, juce::PathStrokeType::curved,
+                                           juce::PathStrokeType::rounded);
 
-        auto inner = circle.reduced (10.0f);
+        g.setColour (pal::stroke);
+        g.strokePath (arc (kStart, kEnd), stroke);
+        g.setColour (accent.withAlpha (dimmed ? 0.3f : 0.92f));
+        g.strokePath (arc (kStart, angle), stroke);
+
+        auto inner = circle.reduced (9.0f);
         g.setColour (pal::panelHi);
         g.fillEllipse (inner);
         g.setColour (pal::stroke.withAlpha (0.8f));
@@ -162,111 +93,109 @@ public:
         const float dir = angle - juce::MathConstants<float>::halfPi;
         const auto point = juce::Point<float> (std::cos (dir), std::sin (dir));
         const auto centre = circle.getCentre();
-        g.setColour (pal::text.withAlpha (0.9f));
-        g.drawLine ({ centre + point * (circle.getWidth() * 0.17f),
+        g.setColour (pal::text.withAlpha (dimmed ? 0.4f : 0.9f));
+        g.drawLine ({ centre + point * (circle.getWidth() * 0.19f),
                       centre + point * (circle.getWidth() * 0.34f) }, 2.0f);
 
         if (format != nullptr)
         {
-            g.setColour (pal::text);
-            g.setFont (uiFont (11.5f, true));
+            g.setColour (dimmed ? pal::dim : pal::text);
+            g.setFont (uiFont (10.5f, true));
             g.drawText (format ((float) getValue()), inner.reduced (2.0f).toNearestInt(),
                         juce::Justification::centred, false);
         }
     }
 
 private:
+    static constexpr float kStart = 3.92699f;   // 225 degrees
+    static constexpr float kEnd   = 8.63938f;   // 495 degrees
+
     juce::Colour accent;
+    bool dimmed = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KnobSlider)
 };
 
 //==============================================================================
-class MacroKnob : public juce::Component
+/** Shared look for a labelled detail control: dot, name, value on the right. */
+class LabelledControl : public juce::Component
 {
 public:
-    MacroKnob (Param p, APVTS& state, juce::Colour accent)
-        : param (p), knob (accent)
+    LabelledControl (Param p, juce::String labelText, juce::Colour accentColour)
+        : param (p),
+          label (labelText.isNotEmpty() ? labelText : juce::String (paramDef (p).name)),
+          accent (accentColour)
     {
-        knob.format = [p] (float v) { return formatParamValue (p, v); };
-        knob.defaultValue = paramDef (p).def;
-
-        addAndMakeVisible (knob);
-        attachment = std::make_unique<APVTS::SliderAttachment> (state, paramId (p), knob);
-        knob.onValueChange = [this] { repaint(); };
     }
+
+    Param getParam() const noexcept { return param; }
 
     void paint (juce::Graphics& g) override
     {
+        auto top = getLocalBounds().removeFromTop (kLabelHeight);
+
+        g.setColour (accent.withAlpha (0.9f));
+        g.fillEllipse ((float) top.getX() + 1.0f, (float) top.getCentreY() - 2.0f, 4.0f, 4.0f);
+
         g.setColour (pal::dim);
-        g.setFont (uiFont (10.0f, true));
-        g.drawText (juce::String (paramDef (param).name).toUpperCase(), labelArea,
-                    juce::Justification::centred, false);
+        g.setFont (uiFont (10.5f, true));
+        g.drawText (label, top.withTrimmedLeft (10), juce::Justification::centredLeft, true);
+
+        const auto value = valueText();
+
+        if (value.isNotEmpty())
+        {
+            g.setColour (pal::text);
+            g.setFont (uiFont (10.5f));
+            g.drawText (value, top, juce::Justification::centredRight, false);
+        }
     }
 
     void resized() override
     {
-        auto b = getLocalBounds();
-        labelArea = b.removeFromBottom (16);
-        knob.setBounds (b);
+        auto r = getLocalBounds();
+        r.removeFromTop (kLabelHeight + 1);
+
+        if (auto* c = control())
+            c->setBounds (r.reduced (0, 1));
     }
 
-private:
-    Param param;
-    KnobSlider knob;
-    juce::Rectangle<int> labelArea;
-    std::unique_ptr<APVTS::SliderAttachment> attachment;
+    static constexpr int kLabelHeight = 16;
+    static constexpr int kPreferredHeight = 44;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MacroKnob)
+protected:
+    virtual juce::Component* control() = 0;
+    virtual juce::String valueText() const { return {}; }
+
+    Param param;
+    juce::String label;
+    juce::Colour accent;
 };
 
 //==============================================================================
-class ParamSlider : public juce::Component
+class ParamSlider : public LabelledControl
 {
 public:
-    ParamSlider (Param p, APVTS& state, juce::Colour accentColour)
-        : param (p), accent (accentColour)
+    ParamSlider (Param p, APVTS& state, juce::Colour accentColour, juce::String labelText = {})
+        : LabelledControl (p, std::move (labelText), accentColour)
     {
         slider.setSliderStyle (juce::Slider::LinearHorizontal);
         slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         slider.setColour (juce::Slider::trackColourId, accent.withAlpha (0.75f));
         slider.setColour (juce::Slider::thumbColourId, accent);
         slider.defaultValue = paramDef (p).def;
+        slider.setTooltip (paramDef (p).name + juce::String ("  (double-click to reset)"));
 
         addAndMakeVisible (slider);
         attachment = std::make_unique<APVTS::SliderAttachment> (state, paramId (p), slider);
         slider.onValueChange = [this] { repaint(); };
     }
 
-    void paint (juce::Graphics& g) override
-    {
-        auto r = getLocalBounds();
-        auto top = r.removeFromTop (16);
-
-        g.setColour (accent.withAlpha (0.9f));
-        g.fillEllipse ((float) top.getX() + 1.0f, (float) top.getY() + 6.0f, 4.0f, 4.0f);
-
-        g.setColour (pal::dim);
-        g.setFont (uiFont (10.5f, true));
-        g.drawText (paramDef (param).name, top.withTrimmedLeft (10),
-                    juce::Justification::centredLeft, false);
-
-        g.setColour (pal::text);
-        g.setFont (uiFont (10.5f));
-        g.drawText (formatParamValue (param, (float) slider.getValue()), top,
-                    juce::Justification::centredRight, false);
-    }
-
-    void resized() override
-    {
-        auto r = getLocalBounds();
-        r.removeFromTop (17);
-        slider.setBounds (r.reduced (0, 1));
-    }
+protected:
+    juce::Component* control() override { return &slider; }
+    juce::String valueText() const override { return formatParamValue (param, (float) slider.getValue()); }
 
 private:
-    Param param;
-    juce::Colour accent;
     ResetSlider slider;
     std::unique_ptr<APVTS::SliderAttachment> attachment;
 
@@ -274,41 +203,22 @@ private:
 };
 
 //==============================================================================
-class ParamCombo : public juce::Component
+class ParamCombo : public LabelledControl
 {
 public:
-    ParamCombo (Param p, APVTS& state, juce::Colour accentColour)
-        : param (p), accent (accentColour)
+    ParamCombo (Param p, APVTS& state, juce::Colour accentColour, juce::String labelText = {})
+        : LabelledControl (p, std::move (labelText), accentColour)
     {
         addAndMakeVisible (box);
         box.addItemList (paramChoices (p), 1);
-
+        box.setTooltip (paramDef (p).name);
         attachment = std::make_unique<APVTS::ComboBoxAttachment> (state, paramId (p), box);
     }
 
-    void paint (juce::Graphics& g) override
-    {
-        auto top = getLocalBounds().removeFromTop (16);
-
-        g.setColour (accent.withAlpha (0.9f));
-        g.fillEllipse ((float) top.getX() + 1.0f, (float) top.getY() + 6.0f, 4.0f, 4.0f);
-
-        g.setColour (pal::dim);
-        g.setFont (uiFont (10.5f, true));
-        g.drawText (paramDef (param).name, top.withTrimmedLeft (10),
-                    juce::Justification::centredLeft, false);
-    }
-
-    void resized() override
-    {
-        auto r = getLocalBounds();
-        r.removeFromTop (17);
-        box.setBounds (r.reduced (0, 1));
-    }
+protected:
+    juce::Component* control() override { return &box; }
 
 private:
-    Param param;
-    juce::Colour accent;
     juce::ComboBox box;
     std::unique_ptr<APVTS::ComboBoxAttachment> attachment;
 
@@ -316,99 +226,82 @@ private:
 };
 
 //==============================================================================
-class ParamToggle : public juce::Component
+class ParamToggle : public LabelledControl
 {
 public:
-    ParamToggle (Param p, APVTS& state, juce::Colour accentColour)
-        : param (p), accent (accentColour)
+    ParamToggle (Param p, APVTS& state, juce::Colour accentColour, juce::String labelText = {})
+        : LabelledControl (p, std::move (labelText), accentColour)
     {
         addAndMakeVisible (button);
         button.setClickingTogglesState (true);
         button.setColour (juce::TextButton::buttonOnColourId, accent.withAlpha (0.85f));
+        button.setTooltip (paramDef (p).name);
 
         attachment = std::make_unique<APVTS::ButtonAttachment> (state, paramId (p), button);
 
-        button.onStateChange = [this]
-        {
-            button.setButtonText (button.getToggleState() ? "On" : "Off");
-        };
-        button.setButtonText (button.getToggleState() ? "On" : "Off");
+        button.onStateChange = [this] { updateText(); };
+        updateText();
     }
 
-    void paint (juce::Graphics& g) override
-    {
-        auto top = getLocalBounds().removeFromTop (16);
-
-        g.setColour (accent.withAlpha (0.9f));
-        g.fillEllipse ((float) top.getX() + 1.0f, (float) top.getY() + 6.0f, 4.0f, 4.0f);
-
-        g.setColour (pal::dim);
-        g.setFont (uiFont (10.5f, true));
-        g.drawText (paramDef (param).name, top.withTrimmedLeft (10),
-                    juce::Justification::centredLeft, false);
-    }
-
-    void resized() override
-    {
-        auto r = getLocalBounds();
-        r.removeFromTop (17);
-        button.setBounds (r.reduced (0, 1));
-    }
+protected:
+    juce::Component* control() override { return &button; }
 
 private:
-    Param param;
-    juce::Colour accent;
+    void updateText() { button.setButtonText (button.getToggleState() ? "On" : "Off"); }
+
     juce::TextButton button;
     std::unique_ptr<APVTS::ButtonAttachment> attachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParamToggle)
 };
 
-//==============================================================================
-class PowerPill : public juce::Component
+/** Makes the right detail control for a parameter's kind. */
+inline std::unique_ptr<LabelledControl> makeControl (Param p, APVTS& state, juce::Colour accent,
+                                                     juce::String label = {})
 {
-public:
-    PowerPill (Param p, APVTS& state, juce::Colour accentColour)
+    switch (paramDef (p).kind)
     {
-        addAndMakeVisible (button);
-        button.setClickingTogglesState (true);
-        button.setColour (juce::TextButton::buttonOnColourId, accentColour.withAlpha (0.9f));
-
-        attachment = std::make_unique<APVTS::ButtonAttachment> (state, paramId (p), button);
-
-        button.onStateChange = [this]
-        {
-            button.setButtonText (button.getToggleState() ? "ON" : "OFF");
-        };
-        button.setButtonText (button.getToggleState() ? "ON" : "OFF");
+        case ParamKind::Choice: return std::make_unique<ParamCombo> (p, state, accent, std::move (label));
+        case ParamKind::Bool:   return std::make_unique<ParamToggle> (p, state, accent, std::move (label));
+        case ParamKind::Float:  break;
     }
 
-    void resized() override { button.setBounds (getLocalBounds()); }
-
-private:
-    juce::TextButton button;
-    std::unique_ptr<APVTS::ButtonAttachment> attachment;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PowerPill)
-};
+    return std::make_unique<ParamSlider> (p, state, accent, std::move (label));
+}
 
 //==============================================================================
-class ModuleChip : public juce::Component
+/** An ON/OFF pill bound to one or more bool parameters. With several (the two
+    compressors) it reads as on when any is on, and a click sets them all. */
+class PowerSwitch : public juce::Component,
+                    public juce::SettableTooltipClient
 {
 public:
-    ModuleChip (juce::String label, juce::Colour accentColour)
-        : name (std::move (label)), accent (accentColour)
+    PowerSwitch (APVTS& s, std::vector<Param> params, juce::Colour accentColour)
+        : state (s), targets (std::move (params)), accent (accentColour)
     {
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        setTooltip ("Switch this stage on or off");
+        shown = isOn();
     }
 
-    std::function<void()> onClick;
-
-    void setActive (bool shouldBeActive)
+    bool isOn() const
     {
-        if (active != shouldBeActive)
+        for (auto p : targets)
+            if (auto* v = state.getRawParameterValue (paramId (p)))
+                if (v->load() > 0.5f)
+                    return true;
+
+        return false;
+    }
+
+    /** Polled from the editor timer so host automation shows up. */
+    void refresh()
+    {
+        const bool now = isOn();
+
+        if (now != shown)
         {
-            active = shouldBeActive;
+            shown = now;
             repaint();
         }
     }
@@ -416,40 +309,49 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat().reduced (0.5f);
+        const float radius = r.getHeight() * 0.5f;
 
-        g.setColour (hover ? pal::panelSoft : pal::panel);
-        g.fillRoundedRectangle (r, 9.0f);
-        g.setColour (hover ? accent.withAlpha (0.4f) : pal::stroke);
-        g.drawRoundedRectangle (r, 9.0f, 1.0f);
+        g.setColour (shown ? accent.withAlpha (0.9f) : pal::panelSoft);
+        g.fillRoundedRectangle (r, radius);
 
-        g.setColour (accent.withAlpha (active ? 1.0f : 0.22f));
-        g.fillEllipse (r.getX() + 8.0f, r.getY() + 8.0f, 5.0f, 5.0f);
+        if (! shown)
+        {
+            g.setColour (pal::stroke);
+            g.drawRoundedRectangle (r, radius, 1.0f);
+        }
 
-        g.setColour (active ? pal::text : pal::dim.withAlpha (0.75f));
-        g.setFont (uiFont (9.0f, true));
-        g.drawText (name.toUpperCase(), getLocalBounds().reduced (4, 10),
-                    juce::Justification::centred, false);
+        g.setColour (shown ? juce::Colours::black : pal::dim);
+        g.setFont (uiFont (8.5f, true));
+        g.drawText (shown ? "ON" : "OFF", getLocalBounds(), juce::Justification::centred, false);
     }
-
-    void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
-    void mouseExit (const juce::MouseEvent&) override  { hover = false; repaint(); }
 
     void mouseUp (const juce::MouseEvent& e) override
     {
-        if (e.mouseWasDraggedSinceMouseDown())
+        if (! getLocalBounds().contains (e.getPosition()) || e.mouseWasDraggedSinceMouseDown())
             return;
 
-        if (onClick != nullptr)
-            onClick();
+        const float next = isOn() ? 0.0f : 1.0f;
+
+        for (auto p : targets)
+        {
+            if (auto* param = state.getParameter (paramId (p)))
+            {
+                param->beginChangeGesture();
+                param->setValueNotifyingHost (next);
+                param->endChangeGesture();
+            }
+        }
+
+        refresh();
     }
 
 private:
-    juce::String name;
+    APVTS& state;
+    std::vector<Param> targets;
     juce::Colour accent;
-    bool active = true;
-    bool hover = false;
+    bool shown = false;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ModuleChip)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PowerSwitch)
 };
 
 //==============================================================================
@@ -485,7 +387,7 @@ private:
     {
         g.setColour (pal::dim);
         g.setFont (uiFont (7.5f, true));
-        g.drawText (label, area.removeFromLeft (16), juce::Justification::centredLeft, false);
+        g.drawText (label, area.removeFromLeft (20), juce::Justification::centredLeft, false);
 
         auto track = area.toFloat().withSizeKeepingCentre ((float) area.getWidth(), 3.0f);
         g.setColour (pal::stroke);
@@ -503,220 +405,83 @@ private:
 };
 
 //==============================================================================
-class PresetRail : public juce::Component
+/** Header preset selector: name and character tag, click for the list. */
+class PresetBox : public juce::Component,
+                  public juce::SettableTooltipClient
 {
 public:
-    PresetRail()
+    PresetBox()
     {
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        setTooltip ("Choose a starting point. Key and scale stay as you set them.");
     }
 
-    std::function<void (int)> onSelect;
+    std::function<void()> onClick;
 
-    void setSelected (int index)
+    void setPreset (const juce::String& presetName, const juce::String& presetTag)
     {
-        if (selected != index)
+        if (name != presetName || tag != presetTag)
         {
-            selected = index;
+            name = presetName;
+            tag = presetTag;
             repaint();
         }
     }
 
     void paint (juce::Graphics& g) override
     {
-        auto full = getLocalBounds().toFloat();
-        drawPanel (g, full.reduced (0.5f), 14.0f, pal::panel);
+        auto r = getLocalBounds().toFloat().reduced (0.5f);
+        g.setColour (hover ? pal::panelHi : pal::panelSoft);
+        g.fillRoundedRectangle (r, 8.0f);
+        g.setColour (pal::stroke);
+        g.drawRoundedRectangle (r, 8.0f, 1.0f);
 
-        g.setColour (pal::purple);
-        g.fillEllipse (16.0f, 18.0f, 5.0f, 5.0f);
-
+        auto text = getLocalBounds().reduced (12, 4).withTrimmedRight (16);
         g.setColour (pal::text);
-        g.setFont (uiFont (11.5f, true));
-        g.drawText ("PRESETS", 28, 12, getWidth() - 40, 18,
-                    juce::Justification::centredLeft, false);
+        g.setFont (uiFont (12.5f, true));
+        g.drawText (name, text.removeFromTop (text.getHeight() / 2 + 2), juce::Justification::bottomLeft, true);
 
         g.setColour (pal::dim);
-        g.setFont (uiFont (9.0f));
-        g.drawText ("starting points, not rules", 16, 32, getWidth() - 32, 14,
-                    juce::Justification::centredLeft, false);
+        g.setFont (uiFont (8.5f));
+        g.drawText (tag.replace ("  |  ", sep()), text, juce::Justification::topLeft, true);
 
-        const int count = (int) factoryPresets().size();
-        const int top = 54;
-        const int bottomReserve = getHeight() > 560 ? 26 : 6;
-        const int rowH = juce::jlimit (36, 44, (getHeight() - top - bottomReserve) / std::max (1, count));
-
-        for (int i = 0; i < count; ++i)
-        {
-            auto row = juce::Rectangle<int> (10, top + i * rowH, getWidth() - 20, rowH - 4);
-            const bool on = i == selected;
-            const bool hot = i == hover && ! on;
-
-            if (on || hot)
-            {
-                g.setColour (on ? pal::panelHi : pal::panelSoft.withAlpha (0.6f));
-                g.fillRoundedRectangle (row.toFloat(), 8.0f);
-            }
-
-            if (on)
-            {
-                g.setColour (pal::teal);
-                g.fillRoundedRectangle ((float) row.getX() + 3.0f, (float) row.getY() + 8.0f,
-                                        2.5f, (float) row.getHeight() - 16.0f, 1.25f);
-            }
-
-            g.setColour (on ? pal::text : pal::text.withAlpha (0.85f));
-            g.setFont (uiFont (12.0f, on));
-            g.drawText (factoryPresets()[(size_t) i].name, row.getX() + 14,
-                        row.getY() + 5, row.getWidth() - 30, 16,
-                        juce::Justification::centredLeft, false);
-
-            g.setColour (on ? pal::dim : pal::dim.withAlpha (0.7f));
-            g.setFont (uiFont (8.5f));
-            g.drawText (factoryPresets()[(size_t) i].tag, row.getX() + 14,
-                        row.getY() + 21, row.getWidth() - 30, 12,
-                        juce::Justification::centredLeft, false);
-
-            if (on)
-            {
-                juce::Path chevron;
-                const float x = (float) row.getRight() - 15.0f;
-                const float y = (float) row.getCentreY();
-                chevron.startNewSubPath (x - 2.0f, y - 4.0f);
-                chevron.lineTo (x + 2.0f, y);
-                chevron.lineTo (x - 2.0f, y + 4.0f);
-                g.setColour (pal::teal);
-                g.strokePath (chevron, juce::PathStrokeType (1.5f));
-            }
-        }
-
-        if (getHeight() > 560)
-        {
-            g.setColour (pal::dim.withAlpha (0.65f));
-            g.setFont (uiFont (8.5f));
-            g.drawText ("TIP  move Tone and Space first.", 16, getHeight() - 22,
-                        getWidth() - 32, 14, juce::Justification::centredLeft, false);
-        }
+        juce::Path arrow;
+        const float cx = (float) getWidth() - 14.0f;
+        const float cy = (float) getHeight() * 0.5f;
+        arrow.startNewSubPath (cx - 4.0f, cy - 2.0f);
+        arrow.lineTo (cx, cy + 2.5f);
+        arrow.lineTo (cx + 4.0f, cy - 2.0f);
+        g.setColour (pal::dim);
+        g.strokePath (arrow, juce::PathStrokeType (1.6f));
     }
 
-    void mouseMove (const juce::MouseEvent& e) override
-    {
-        const int count = (int) factoryPresets().size();
-        const int top = 54;
-        const int rowH = juce::jlimit (36, 44, (getHeight() - top - (getHeight() > 560 ? 26 : 6)) / std::max (1, count));
-        const int index = (e.y - top) / std::max (1, rowH);
-        const int next = (e.y >= top && index >= 0 && index < count) ? index : -1;
-
-        if (next != hover)
-        {
-            hover = next;
-            repaint();
-        }
-    }
-
-    void mouseExit (const juce::MouseEvent&) override
-    {
-        hover = -1;
-        repaint();
-    }
+    void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
+    void mouseExit (const juce::MouseEvent&) override  { hover = false; repaint(); }
 
     void mouseUp (const juce::MouseEvent& e) override
     {
-        if (e.mouseWasDraggedSinceMouseDown())
-            return;
-
-        const int count = (int) factoryPresets().size();
-        const int top = 54;
-        const int rowH = juce::jlimit (36, 44, (getHeight() - top - (getHeight() > 560 ? 26 : 6)) / std::max (1, count));
-        const int index = (e.y - top) / std::max (1, rowH);
-
-        if (e.y >= top && index >= 0 && index < count)
-        {
-            setSelected (index);
-            if (onSelect != nullptr)
-                onSelect (index);
-        }
+        if (getLocalBounds().contains (e.getPosition()) && onClick != nullptr)
+            onClick();
     }
 
 private:
-    int selected = 0;
-    int hover = -1;
+    juce::String name, tag;
+    bool hover = false;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PresetRail)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PresetBox)
 };
 
 //==============================================================================
-class SignalPath : public juce::Component
-{
-public:
-    SignalPath()
-    {
-        static const char* names[] = { "Tune", "EQ", "De-ess", "Comp", "Drive",
-                                       "Motion", "Delay", "Verb", "Width", "Limit" };
-        static const juce::Colour colours[] = {
-            pal::purple, pal::teal, pal::pink, pal::amber, pal::pink,
-            pal::purple, pal::teal, pal::purple, pal::teal, pal::yellow
-        };
-
-        for (int i = 0; i < 10; ++i)
-        {
-            auto* chip = new ModuleChip (names[i], colours[i]);
-            chip->onClick = [this, i] { if (onOpen != nullptr) onOpen (i); };
-            addAndMakeVisible (chip);
-            chips.add (chip);
-        }
-    }
-
-    std::function<void (int)> onOpen;
-
-    void setActive (int index, bool active)
-    {
-        if (juce::isPositiveAndBelow (index, chips.size()))
-            chips[index]->setActive (active);
-    }
-
-    void paint (juce::Graphics& g) override
-    {
-        drawPanel (g, getLocalBounds().toFloat().reduced (0.5f), 12.0f, pal::panel);
-
-        g.setColour (pal::dim);
-        g.setFont (uiFont (9.0f, true));
-        g.drawText ("SIGNAL PATH", 14, 8, 160, 12, juce::Justification::centredLeft, false);
-
-        g.setColour (pal::dim.withAlpha (0.6f));
-        g.setFont (uiFont (8.5f));
-        g.drawText ("click a stage for every control", getWidth() - 220, 8, 206, 12,
-                    juce::Justification::centredRight, false);
-    }
-
-    void resized() override
-    {
-        auto area = getLocalBounds().reduced (12, 0);
-        area.removeFromTop (24);
-        area = area.removeFromTop (juce::jmin (52, getHeight() - 30));
-
-        const int gap = 6;
-        const int w = (area.getWidth() - gap * (chips.size() - 1)) / std::max (1, chips.size());
-
-        for (auto* chip : chips)
-        {
-            chip->setBounds (area.removeFromLeft (w));
-            area.removeFromLeft (gap);
-        }
-    }
-
-private:
-    juce::OwnedArray<ModuleChip> chips;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SignalPath)
-};
-
-//==============================================================================
-class ThrowButton : public juce::Component
+/** Momentary delay throw: opens the delay send while held, even when the
+    Delay stage is switched off, and lets the echoes ring out on release. */
+class ThrowButton : public juce::Component,
+                    public juce::SettableTooltipClient
 {
 public:
     ThrowButton()
     {
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        setTooltip ("Hold to throw the vocal into the delay");
     }
 
     std::function<void (bool)> onHold;
@@ -731,47 +496,29 @@ public:
         g.drawRoundedRectangle (r, 7.0f, 1.0f);
 
         g.setColour (held ? pal::pink : pal::text.withAlpha (0.85f));
-        g.setFont (uiFont (9.5f, true));
-        g.drawText ("THROW", getLocalBounds().removeFromTop (getHeight() - 10),
-                    juce::Justification::centred, false);
-
-        g.setColour (pal::dim.withAlpha (0.8f));
-        g.setFont (uiFont (7.0f));
-        g.drawText ("delay send", getLocalBounds().removeFromBottom (10),
-                    juce::Justification::centred, false);
+        g.setFont (uiFont (11.0f, true));
+        g.drawText ("THROW", getLocalBounds(), juce::Justification::centred, false);
     }
 
-    void mouseDown (const juce::MouseEvent&) override
-    {
-        held = true;
-        repaint();
-        if (onHold != nullptr)
-            onHold (true);
-    }
+    void mouseDown (const juce::MouseEvent&) override { setHeld (true); }
+    void mouseUp (const juce::MouseEvent&) override   { setHeld (false); }
 
-    void mouseUp (const juce::MouseEvent&) override
-    {
-        if (held)
-        {
-            held = false;
-            repaint();
-            if (onHold != nullptr)
-                onHold (false);
-        }
-    }
-
-    void mouseExit (const juce::MouseEvent&) override
-    {
-        if (held)
-        {
-            held = false;
-            repaint();
-            if (onHold != nullptr)
-                onHold (false);
-        }
-    }
+    /** Releases a held throw, e.g. when the editor closes mid-press. */
+    void release() { setHeld (false); }
 
 private:
+    void setHeld (bool shouldHold)
+    {
+        if (held == shouldHold)
+            return;
+
+        held = shouldHold;
+        repaint();
+
+        if (onHold != nullptr)
+            onHold (held);
+    }
+
     bool held = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ThrowButton)

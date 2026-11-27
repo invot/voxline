@@ -19,7 +19,14 @@ int factoryPresetCount();
 juce::String factoryPresetName (int);
 juce::String factoryPresetTag (int);
 
-/** Resets every parameter to its neutral default, then applies the preset. */
+/** True for every parameter a factory preset must state. Bypass, key and scale
+    are not preset parameters: they belong to the session and the song. */
+bool isPresetParam (Param);
+
+/** Empty when the preset sets every preset parameter exactly once, in range. */
+juce::StringArray factoryPresetProblems (int index);
+
+/** Applies every value of the preset. Key, scale and bypass are untouched. */
 void applyFactoryPreset (juce::AudioProcessorValueTreeState&, int index);
 
 } // namespace vx

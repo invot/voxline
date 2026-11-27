@@ -131,12 +131,18 @@ void DeEsserModule::process (float* l, float* r, int n, const DeEssParams& p)
 
     for (int i = 0; i < n; ++i)
     {
-        const float highL = hpf.processL (l[i]);
-        const float highR = hpf.processR (r[i]);
+        // The detector listens to a proper high-pass. The audio split is
+        // complementary (high = input - low), so with no reduction the output
+        // is the input exactly; summing a Butterworth LP and HP at the same
+        // corner would notch the crossover frequency out.
+        const float detL = hpf.processL (l[i]);
+        const float detR = hpf.processR (r[i]);
         const float lowL  = lpf.processL (l[i]);
         const float lowR  = lpf.processR (r[i]);
+        const float highL = l[i] - lowL;
+        const float highR = r[i] - lowR;
 
-        const float e = env.process (std::max (std::abs (highL), std::abs (highR)));
+        const float e = env.process (std::max (std::abs (detL), std::abs (detR)));
         const float over = gainToDb (e) - p.thresholdDb;
         const float grDb = over > 0.0f ? std::min (p.amountDb, over * 0.8f) : 0.0f;
         const float target = dbToGain (-grDb);
@@ -308,11 +314,19 @@ void MotionModule::reset()
 
 void MotionModule::process (float* l, float* r, int n, const MotionParams& p)
 {
-    on = p.on;
     mode = p.mode;
 
-    if (! on)
+    if (! p.on)
+    {
+        on = false;
         return;
+    }
+
+    if (! on)
+    {
+        reset();   // don't replay whatever was in the lines when it was switched off
+        on = true;
+    }
 
     const float depth = clamp01 (p.depth);
     const float mix = clamp01 (p.mix);
@@ -403,13 +417,32 @@ void DelayModule::reset()
     hpR.reset();
     throwSmooth.snap (0.0f);
     timePrimed = false;
+    on = false;
 }
 
 void DelayModule::process (float* l, float* r, int n, const DelayParams& p, const float* duck, float throwAmount)
 {
-    on = p.on;
-    if (! on)
+    // THROW works whether or not the delay module is switched on: with the
+    // module off the base send is zero and only the throw opens it.
+    const float throwTarget = clamp01 (throwAmount);
+    const bool active = p.on || throwTarget > 0.0f || throwSmooth.value() > 1.0e-4f;
+
+    if (! active)
+    {
+        on = false;
         return;
+    }
+
+    if (! on)
+    {
+        // Coming back on: start from silence, not from a tail frozen when the
+        // module was last switched off.
+        delayL.reset();
+        delayR.reset();
+        lpL.reset(); lpR.reset(); hpL.reset(); hpR.reset();
+        timePrimed = false;
+        on = true;
+    }
 
     float delayMs = p.timeMs;
 
@@ -424,9 +457,11 @@ void DelayModule::process (float* l, float* r, int n, const DelayParams& p, cons
         timePrimed = true;
     }
 
-    throwSmooth.target = clamp01 (throwAmount);
+    // Fast in, slow out, so a thrown phrase rings out after the button lifts.
+    throwSmooth.target = throwTarget;
+    throwSmooth.setTime (sr, throwTarget > throwSmooth.value() ? 30.0f : 700.0f);
     feedback = std::max (0.0f, std::min (0.92f, p.feedback));
-    mix = clamp01 (p.mix);
+    mix = p.on ? clamp01 (p.mix) : 0.0f;
     duckAmount = clamp01 (p.duck);
     pingPong = p.pingPong;
 
@@ -476,7 +511,10 @@ void LimiterModule::prepare (double sampleRate, int maxBlock)
 
     audioL.prepare (lookahead + maxBlock + 8, 0.0f);
     audioR.prepare (lookahead + maxBlock + 8, 0.0f);
-    gainLine.prepare (lookahead + maxBlock + 8, 1.0f);
+
+    // lookahead + 1 live entries at most, plus the empty slot a ring needs.
+    minValue.assign ((size_t) (lookahead + 2), 1.0f);
+    minIndex.assign ((size_t) (lookahead + 2), 0);
 
     releaseCoef = (float) std::exp (-1.0 / (sr * 0.080));
     gain = 1.0f;
@@ -488,7 +526,10 @@ void LimiterModule::reset()
 {
     audioL.reset (0.0f);
     audioR.reset (0.0f);
-    gainLine.reset (1.0f);
+    std::fill (minValue.begin(), minValue.end(), 1.0f);
+    std::fill (minIndex.begin(), minIndex.end(), 0);
+    minHead = minTail = 0;
+    sampleCounter = 0;
     gain = 1.0f;
     lastGr = 0.0f;
 }
@@ -498,6 +539,12 @@ void LimiterModule::process (float* l, float* r, int n, bool on, float ceilingDb
     ceiling = dbToGain (std::min (-0.05f, ceilingDb));
     releaseCoef = (float) std::exp (-1.0 / (sr * std::max (5.0f, releaseMs) * 0.001));
     lastGr = 0.0f;
+
+    // The attack ramps down across the look-ahead window, so the gain reaches
+    // the target by the time the peak leaves the delay line instead of
+    // stepping on the peak sample itself.
+    const float attackCoef = (float) std::exp (-3.0 / (double) std::max (1, lookahead));
+    const int window = (int) minValue.size();
 
     for (int i = 0; i < n; ++i)
     {
@@ -514,14 +561,36 @@ void LimiterModule::process (float* l, float* r, int n, bool on, float ceilingDb
                 target = ceiling / peak;
         }
 
-        if (target < gain)
-            gain = target;
+        // Sliding minimum of the target over the look-ahead window (a
+        // monotonic ring queue, O(1) amortised per sample).
+        const long long now = sampleCounter++;
+
+        // Expire first: the window is [now - lookahead, now], which is the
+        // input span that covers the delayed sample leaving this call.
+        while (minHead != minTail && minIndex[(size_t) minHead] < now - lookahead)
+            minHead = (minHead + 1) % window;
+
+        while (minHead != minTail)
+        {
+            const int last = (minTail - 1 + window) % window;
+            if (minValue[(size_t) last] > target)
+                minTail = last;
+            else
+                break;
+        }
+
+        minValue[(size_t) minTail] = target;
+        minIndex[(size_t) minTail] = now;
+        minTail = (minTail + 1) % window;
+
+        const float held = minHead != minTail ? minValue[(size_t) minHead] : 1.0f;
+
+        if (held < gain)
+            gain = held + attackCoef * (gain - held);
         else
-            gain = releaseCoef * gain + (1.0f - releaseCoef) * target;
+            gain = releaseCoef * gain + (1.0f - releaseCoef) * held;
 
-        gainLine.push (gain);
-
-        const float applied = gainLine.read ((float) lookahead);
+        const float applied = gain;
         float outL = audioL.read ((float) lookahead) * applied;
         float outR = audioR.read ((float) lookahead) * applied;
 

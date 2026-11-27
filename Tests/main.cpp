@@ -484,6 +484,122 @@ namespace
                    "reported latency includes the tuner and limiter lookahead");
         }
     }
+
+    // ---- regressions for fixed bugs -----------------------------------------
+
+    void testDeEsserIsTransparentWhenIdle()
+    {
+        // A Butterworth LP + HP split summed back together notches the corner.
+        vx::DeEsserModule deess;
+        deess.prepare (kSr);
+
+        vx::DeEssParams p;
+        p.freq = 6800.0f;
+        p.thresholdDb = 0.0f;     // never triggers
+        p.amountDb = 12.0f;
+
+        std::vector<float> l (48000, 0.0f), r (48000, 0.0f);
+        double a = 0.0;
+
+        for (int i = 0; i < (int) l.size(); ++i)
+        {
+            a += 2.0 * 3.14159265358979323846 * 6800.0 / kSr;
+            l[(size_t) i] = r[(size_t) i] = 0.1f * (float) std::sin (a);
+        }
+
+        const double before = goertzel (l, 6800.0, 24000, 46000);
+
+        for (int pos = 0; pos < (int) l.size(); pos += 512)
+            deess.process (l.data() + pos, r.data() + pos, std::min (512, (int) l.size() - pos), p);
+
+        const double after = goertzel (l, 6800.0, 24000, 46000);
+        std::printf ("       idle de-esser at its own corner: %.2f dB\n", 20.0 * std::log10 (after / before));
+        check (std::abs (20.0 * std::log10 (after / before)) < 0.1, "idle de-esser is flat at its crossover");
+    }
+
+    void testLimiterLooksAhead()
+    {
+        vx::LimiterModule lim;
+        lim.prepare (kSr, 512);
+        const int look = lim.lookaheadSamples();
+
+        std::vector<float> in (8192, 0.2f), l, r;
+        in[4000] = 1.0f;          // one spike well over a -6 dB ceiling
+        l = in;
+        r = in;
+
+        for (int pos = 0; pos < (int) l.size(); pos += 512)
+            lim.process (l.data() + pos, r.data() + pos, std::min (512, (int) l.size() - pos),
+                         true, -6.0f, 80.0f);
+
+        // With real look-ahead the gain is already coming down before the spike
+        // leaves the delay line, so the samples just ahead of it are quieter.
+        const float before = l[(size_t) (4000 + look - 4)];
+        check (before < 0.2f * 0.9f, "limiter gain ramps down ahead of the peak");
+        check (std::abs (l[(size_t) (4000 + look)]) <= 0.5012f, "limited spike sits at the ceiling");
+        check (std::abs (l[(size_t) (1000 + look)] - 0.2f) < 1.0e-4f, "limiter leaves quiet audio alone");
+    }
+
+    void testBypassEngagesCleanly()
+    {
+        vx::VocalChain chain;
+        chain.prepare (kSr, 512);
+        vx::ChainParams p = neutralParams();
+        p.sat.on = true;
+        p.sat.mix = 1.0f;
+
+        const int total = 48000;
+        std::vector<float> in ((size_t) total), l, r;
+        unsigned seed = 11;
+
+        for (auto& v : in)
+        {
+            seed = seed * 1664525u + 1013904223u;
+            v = 0.3f * ((float) ((seed >> 9) & 0x7fffff) / (float) 0x7fffff * 2.0f - 1.0f);
+        }
+
+        l = in;
+        r = in;
+        const int switchAt = 24064;   // a block boundary
+
+        for (int pos = 0; pos < total; pos += 512)
+        {
+            p.bypass = pos >= switchAt;
+            chain.process (l.data() + pos, r.data() + pos, std::min (512, total - pos), p);
+        }
+
+        // Once the crossfade has settled, bypass is the input delayed by the
+        // reported latency, even inside the first `latency` samples after the
+        // switch (where the old bypass line still held stale audio).
+        const int lat = chain.latencySamples();
+        double worst = 0.0;
+
+        for (int i = switchAt + 2000; i < switchAt + lat; ++i)
+            worst = std::max (worst, (double) std::abs (l[(size_t) i] - in[(size_t) (i - lat)]));
+
+        check (worst < 1.0e-6, "engaging bypass plays the latency-matched input at once");
+    }
+
+    void testThrowWithDelayOff()
+    {
+        vx::DelayModule delay;
+        delay.prepare (kSr, 512);
+
+        vx::DelayParams p;
+        p.on = false;
+        p.timeMs = 100.0f;
+        p.feedback = 0.0f;
+        p.duck = 0.0f;
+
+        std::vector<float> l (24000, 0.0f), r (24000, 0.0f);
+        l[1000] = r[1000] = 0.8f;
+
+        for (int pos = 0; pos < (int) l.size(); pos += 512)
+            delay.process (l.data() + pos, r.data() + pos, std::min (512, (int) l.size() - pos),
+                           p, nullptr, 1.0f);
+
+        check (peak (l, 1000 + 4800 - 4, 1000 + 4800 + 4) > 0.1, "THROW opens the delay even when it is off");
+    }
 }
 
 int main()
@@ -498,6 +614,10 @@ int main()
     testReverb();
     testTune();
     testChainLatencyAndStability();
+    testDeEsserIsTransparentWhenIdle();
+    testLimiterLooksAhead();
+    testBypassEngagesCleanly();
+    testThrowWithDelayOff();
 
     std::printf ("\n%s\n", failures == 0 ? "all DSP checks passed" : "DSP CHECKS FAILED");
     return failures == 0 ? 0 : 1;

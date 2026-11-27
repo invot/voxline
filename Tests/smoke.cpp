@@ -1,10 +1,13 @@
 // Console smoke harness: builds the processor and editor without a DAW, renders
-// every factory preset, round-trips state, and writes both editor pages to PNG.
+// every factory preset, checks every preset states every stage, round-trips
+// state, and writes editor snapshots to PNG.
 
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "Presets.h"
+#include "ui/ChainView.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <memory>
@@ -125,6 +128,55 @@ int main()
     check (proc.reportedLatency() > 0, "chain reports latency");
     check (proc.getLatencySamples() == proc.reportedLatency(), "host latency matches the chain");
 
+    // Every preset states every stage (reverb, limiter, both compressors, EQ,
+    // de-esser, pitch, drive, width, chorus, delay), once, inside its range.
+    for (int i = 0; i < vx::factoryPresetCount(); ++i)
+    {
+        const auto problems = vx::factoryPresetProblems (i);
+
+        for (const auto& problem : problems)
+            std::fprintf (stderr, "        %s: %s\n", vx::factoryPresetName (i).toRawUTF8(), problem.toRawUTF8());
+
+        const auto what = vx::factoryPresetName (i) + ": sets every stage, in range";
+        check (problems.isEmpty(), what.toRawUTF8());
+    }
+
+    // Every parameter except bypass (which lives in the header) has a control.
+    {
+        const auto reachable = vx::ui::ChainView::reachableParams();
+        bool all = true;
+
+        for (int i = 0; i < (int) vx::Param::Count; ++i)
+        {
+            const auto p = (vx::Param) i;
+
+            if (p == vx::Param::Bypass)
+                continue;
+
+            if (std::find (reachable.begin(), reachable.end(), p) == reachable.end())
+            {
+                std::fprintf (stderr, "        no control for %s\n", vx::paramId (p));
+                all = false;
+            }
+        }
+
+        check (all, "every parameter has a control in the chain view");
+    }
+
+    // Presets keep the song's key and scale.
+    {
+        auto* key = proc.apvts.getParameter ("tuneKey");
+        auto* scale = proc.apvts.getParameter ("tuneScale");
+        key->setValueNotifyingHost (key->convertTo0to1 (9.0f));      // A
+        scale->setValueNotifyingHost (scale->convertTo0to1 (2.0f));  // natural minor
+        proc.setCurrentProgram (4);
+        check (std::lround (proc.apvts.getRawParameterValue ("tuneKey")->load()) == 9
+                   && std::lround (proc.apvts.getRawParameterValue ("tuneScale")->load()) == 2,
+               "changing preset keeps key and scale");
+        key->setValueNotifyingHost (key->convertTo0to1 (0.0f));
+        scale->setValueNotifyingHost (scale->convertTo0to1 (0.0f));
+    }
+
     for (int i = 0; i < vx::factoryPresetCount(); ++i)
     {
         char label[96];
@@ -161,14 +213,20 @@ int main()
     {
         std::unique_ptr<vx::VoxlineEditor> owner (editor);
         editor->setVisible (true);
-        editor->setSize (1180, 800);
+        editor->setSize (1180, 780);
         juce::MessageManager::getInstance()->runDispatchLoopUntil (80);
 
         editor->showPresetForSnapshot (0);
-        editor->getTabBar().setSelected (0, true);
         juce::MessageManager::getInstance()->runDispatchLoopUntil (60);
 
-        check (editor->getDetailPage().getSelectedModule() == 0, "detail starts on Tune");
+        check (editor->getChainView().getSelectedModule() == vx::ui::ChainView::Pitch, "view starts on Pitch");
+
+        for (int stage = 0; stage < vx::ui::ChainView::NumStages; ++stage)
+        {
+            editor->getChainView().selectModule (stage);
+            const auto what = "selects " + vx::ui::ChainView::stageName (stage);
+            check (editor->getChainView().getSelectedModule() == stage, what.toRawUTF8());
+        }
 
         const auto snapshotDir = juce::SystemStats::getEnvironmentVariable ("VX_SNAPSHOT_DIR", {});
 
@@ -177,25 +235,42 @@ int main()
             juce::File dir (snapshotDir);
             dir.createDirectory();
 
-            editor->getShapePage().refresh();
-            check (savePng (*editor, dir.getChildFile ("shape.png")), "wrote shape.png");
+            // The old two-page snapshots went with the two pages.
+            for (auto* old : { "shape.png", "shape-grand.png", "detail-eq.png", "detail-reverb.png", "detail-tune.png" })
+                dir.getChildFile (old).deleteFile();
 
-            editor->showPresetForSnapshot (1);
-            juce::MessageManager::getInstance()->runDispatchLoopUntil (60);
-            check (savePng (*editor, dir.getChildFile ("shape-grand.png")), "wrote shape-grand.png");
+            const struct { int preset; int stage; const char* file; } shots[] =
+            {
+                { 3, vx::ui::ChainView::Pitch,  "pitch-polished-pop.png" },
+                { 0, vx::ui::ChainView::Eq,     "eq-close-intimate.png" },
+                { 6, vx::ui::ChainView::Comp,   "comp-grunge.png" },
+                { 4, vx::ui::ChainView::Reverb, "reverb-ethereal.png" },
+                { 2, vx::ui::ChainView::Chorus, "chorus-chorus-stack.png" },
+                { 1, vx::ui::ChainView::Delay,  "delay-grand-stadium.png" }
+            };
 
-            editor->getTabBar().setSelected (1, true);
-            editor->getDetailPage().selectModule (1);
-            juce::MessageManager::getInstance()->runDispatchLoopUntil (60);
-            check (savePng (*editor, dir.getChildFile ("detail-eq.png")), "wrote detail-eq.png");
+            for (const auto& shot : shots)
+            {
+                editor->showPresetForSnapshot (shot.preset);
+                editor->getChainView().selectModule (shot.stage);
 
-            editor->getDetailPage().selectModule (8);
-            juce::MessageManager::getInstance()->runDispatchLoopUntil (60);
-            check (savePng (*editor, dir.getChildFile ("detail-reverb.png")), "wrote detail-reverb.png");
+                // Run some audio so the meters, tuner readout and GR bars are live.
+                juce::AudioBuffer<float> buffer (2, 512);
+                juce::MidiBuffer midi;
+                TestVocal vocal;
 
-            editor->getDetailPage().selectModule (0);
-            juce::MessageManager::getInstance()->runDispatchLoopUntil (60);
-            check (savePng (*editor, dir.getChildFile ("detail-tune.png")), "wrote detail-tune.png");
+                for (int block = 0; block < 60; ++block)
+                {
+                    vocal.fill (buffer.getWritePointer (0), buffer.getWritePointer (1), 512);
+                    proc.processBlock (buffer, midi);
+                }
+
+                editor->getChainView().refresh();
+                juce::MessageManager::getInstance()->runDispatchLoopUntil (60);
+
+                const auto what = juce::String ("wrote ") + shot.file;
+                check (savePng (*editor, dir.getChildFile (shot.file)), what.toRawUTF8());
+            }
 
             std::printf ("snapshots: %s\n", dir.getFullPathName().toRawUTF8());
         }

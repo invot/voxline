@@ -7,6 +7,16 @@ VST3 and standalone for Windows, built with JUCE 8.0.6.
 
 ![voxline on the EQ stage, Close / Intimate preset](docs/screenshots/eq-close-intimate.png)
 
+## Download
+
+Every push to `main` builds the Windows installer and the VST3, runs the DSP and
+smoke checks, and publishes them as the
+[**latest**](https://github.com/invot/voxline/releases/tag/latest) release (see
+`.github/workflows/release.yml`). The installer puts the standalone app in Program
+Files and `voxline.vst3` in the shared VST3 folder
+(`C:\Program Files\Common Files\VST3`); the zip is the VST3 bundle on its own. A
+build whose checks fail is not published, and the previous release stays up.
+
 ## The interface
 
 The page has three parts.
@@ -125,6 +135,25 @@ manifest. Build through `build.sh`; a direct CMake configure will not set those.
 If JUCE is somewhere else, pass `-DVX_JUCE_DIR=...` to CMake, or edit `VX_JUCE_DIR`
 in `CMakeLists.txt`. If the toolchain moves, edit `TOOLS` in `build.sh`.
 
+### Release build (CI)
+
+`.github/workflows/release.yml` runs on every push to `main` (or by hand from the
+Actions tab) on `windows-latest`:
+
+1. Downloads WinLibs GCC 16.2.0 and JUCE 8.0.6, both pinned by SHA-256, and applies
+   `ci/juce-8.0.6-mingw.patch`. That is the same patch the local JUCE under
+   `../SightLine/.tools` carries, so CI compiles exactly the code a local build does.
+   The toolchain is cached between runs.
+2. Configures and builds the VST3, standalone, `VoxlineTests` and `VoxlineSmoke`
+   with the same flags as `build.sh`.
+3. Runs both test executables; any failure stops the release.
+4. Packages `dist/voxline-VST3-Windows.zip` and, with Inno Setup
+   (`installer/voxline.iss`), `dist/voxline-Setup-Windows.exe`.
+5. Replaces the rolling `latest` release and tag with the new files.
+
+Both binaries are statically linked and import only Windows system DLLs, so the
+installer ships nothing besides `voxline.exe` and the VST3 bundle.
+
 ## Checks
 
 - `VoxlineTests` covers the biquads, compressor, de-esser, limiter, delay, reverb
@@ -150,6 +179,9 @@ Source/ui/          Theme, widgets, graphs, and the ChainView (tiles + selected 
 Source/             Parameters, presets, processor, editor
 Tests/              main.cpp (DSP checks), smoke.cpp (plugin/editor checks + screenshots)
 third_party/        Signalsmith Stretch and Signalsmith Linear (MIT) + licenses
+ci/                 The JUCE 8.0.6 MinGW patch the release build applies
+installer/          Inno Setup script for the Windows installer
+.github/workflows/  release.yml: build, test and publish "latest" on every push to main
 ```
 
 ## Licensing

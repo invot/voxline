@@ -25,3 +25,6 @@ desktop.ini
 .vscode/
 .idea/
 compile_commands.json
+
+# Release packaging output
+/dist/

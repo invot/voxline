@@ -1,0 +1,220 @@
+--- a/extras/Build/CMake/JUCEUtils.cmake
++++ b/extras/Build/CMake/JUCEUtils.cmake
+@@ -1052,6 +1052,11 @@
+         target_compile_options(juce_vst3_helper PRIVATE -fobjc-arc)
+     endif()
+ 
++    if(MINGW)
++        # The manifest helper's Windows entry point is wmain.
++        target_link_options(juce_vst3_helper PRIVATE -municode)
++    endif()
++
+     set_target_properties(juce_vst3_helper PROPERTIES BUILD_WITH_INSTALL_RPATH ON)
+     set(THREADS_PREFER_PTHREAD_FLAG ON)
+     find_package(Threads REQUIRED)
+--- a/extras/Build/juceaide/CMakeLists.txt
++++ b/extras/Build/juceaide/CMakeLists.txt
+@@ -55,6 +55,25 @@
+         juce::juce_recommended_lto_flags
+         juce::juce_recommended_warning_flags)
+ 
++    # MinGW does not honour JUCE's #pragma comment(lib, ...) list.
++    if (MINGW)
++        target_link_libraries(juceaide PRIVATE
++            wininet winmm ws2_32 ole32 oleaut32 uuid version shlwapi user32 gdi32
++            shell32 comdlg32 imm32 rstrtmgr dwmapi d2d1 d3d11 dxgi dcomp
++            windowscodecs setupapi crypt32 secur32 winhttp uxtheme oleacc propsys
++            hid shcore dbghelp comctl32)
++
++        # Without a manifest the exe binds to common controls v5, which has no
++        # TaskDialogIndirect, and fails at load time.
++        set(_sl_manifest_rc "$ENV{SIGHTLINE_MANIFEST_RC}")
++        if (EXISTS "${_sl_manifest_rc}")
++            target_sources(juceaide PRIVATE "${_sl_manifest_rc}")
++            get_filename_component(_sl_manifest_dir "${_sl_manifest_rc}" DIRECTORY)
++            set_source_files_properties("${_sl_manifest_rc}" PROPERTIES
++                COMPILE_FLAGS "--include-dir=${_sl_manifest_dir}")
++        endif()
++    endif()
++
+     set_target_properties(juceaide PROPERTIES
+         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+ 
+--- a/modules/juce_audio_formats/codecs/juce_WindowsMediaAudioFormat.cpp
++++ b/modules/juce_audio_formats/codecs/juce_WindowsMediaAudioFormat.cpp
+@@ -32,6 +32,10 @@
+   ==============================================================================
+ */
+ 
++#if JUCE_MINGW
++ #include <nserror.h>
++#endif
++
+ namespace juce
+ {
+ 
+--- a/modules/juce_core/native/juce_SystemStats_windows.cpp
++++ b/modules/juce_core/native/juce_SystemStats_windows.cpp
+@@ -98,6 +98,14 @@
+   result[0] = (int) la; result[1] = (int) lb;
+   result[2] = (int) lc; result[3] = (int) ld;
+ }
++ #elif JUCE_MINGW
++#include <cpuid.h>
++static void callCPUID (int result[4], int infoType)
++{
++    unsigned int a = 0, b = 0, c = 0, d = 0;
++    __get_cpuid ((unsigned int) infoType, &a, &b, &c, &d);
++    result[0] = (int) a; result[1] = (int) b; result[2] = (int) c; result[3] = (int) d;
++}
+  #else
+ static void callCPUID (int result[4], int infoType)
+ {
+--- a/modules/juce_core/system/juce_TargetPlatform.h
++++ b/modules/juce_core/system/juce_TargetPlatform.h
+@@ -110,7 +110,12 @@
+   #endif
+ 
+   #ifdef __MINGW32__
+-    #error "MinGW is not supported. Please use an alternative compiler."
++    #define JUCE_MINGW 1
++    #ifdef __MINGW64__
++      #define JUCE_64BIT 1
++    #else
++      #define JUCE_32BIT 1
++    #endif
+   #endif
+ 
+   /** If defined, this indicates that the processor is little-endian. */
+--- a/modules/juce_graphics/image_formats/juce_JPEGLoader.cpp
++++ b/modules/juce_graphics/image_formats/juce_JPEGLoader.cpp
+@@ -143,7 +143,7 @@
+ {
+     using namespace jpeglibNamespace;
+ 
+-   #if ! (JUCE_WINDOWS && (JUCE_MSVC || JUCE_CLANG))
++   #if ! (JUCE_WINDOWS && (JUCE_MSVC || JUCE_CLANG || JUCE_MINGW))
+     using jpeglibNamespace::boolean;
+    #endif
+ 
+--- a/modules/juce_graphics/native/juce_Direct2DResources_windows.cpp
++++ b/modules/juce_graphics/native/juce_Direct2DResources_windows.cpp
+@@ -442,7 +442,7 @@
+ 
+         ComSmartPtr<IDXGIDevice> device;
+         JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wlanguage-extension-token")
+-        chain->GetDevice (__uuidof (device), (void**) device.resetAndGetPointerAddress());
++        chain->GetDevice (__uuidof (IDXGIDevice), (void**) device.resetAndGetPointerAddress());
+         JUCE_END_IGNORE_WARNINGS_GCC_LIKE
+ 
+         SharedResourcePointer<DirectX> directX;
+@@ -495,7 +495,7 @@
+ 
+         ComSmartPtr<IDXGISurface> surface;
+         JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wlanguage-extension-token")
+-        if (const auto hr = chain->GetBuffer (0, __uuidof (surface), reinterpret_cast<void**> (surface.resetAndGetPointerAddress())); FAILED (hr))
++        if (const auto hr = chain->GetBuffer (0, __uuidof (IDXGISurface), reinterpret_cast<void**> (surface.resetAndGetPointerAddress())); FAILED (hr))
+             return nullptr;
+         JUCE_END_IGNORE_WARNINGS_GCC_LIKE
+ 
+--- a/modules/juce_gui_basics/native/accessibility/juce_Accessibility_windows.cpp
++++ b/modules/juce_gui_basics/native/accessibility/juce_Accessibility_windows.cpp
+@@ -289,7 +289,12 @@
+ {
+     SpVoiceWrapper()
+     {
++       #if JUCE_MINGW
++        static const CLSID spVoiceClsid = { 0x96749377, 0x3391, 0x11D2, { 0x9E, 0xE3, 0x00, 0xC0, 0x4F, 0x79, 0x49, 0x3B } };
++        [[maybe_unused]] auto hr = voice.CoCreateInstance (spVoiceClsid);
++       #else
+         [[maybe_unused]] auto hr = voice.CoCreateInstance (CLSID_SpVoice);
++       #endif
+ 
+         jassert (SUCCEEDED (hr));
+     }
+--- a/modules/juce_video/juce_video.cpp
++++ b/modules/juce_video/juce_video.cpp
+@@ -55,10 +55,42 @@
+ //==============================================================================
+ #elif JUCE_WINDOWS
+  #include "dshow.h"
+- #include "dshowasf.h"
+- #include "evr.h"
+  #include "strmif.h"
+- #include "wmsdk.h"
++ #include "evr.h"
++
++  #if JUCE_MINGW
++   // MinGW's DirectShow headers declare these IIDs as extern symbols only, and
++   // JUCE declares the sample-grabber interfaces per translation unit, so supply
++   // the __uuidof specialisations the linker is missing.
++   template <> inline const GUID& __mingw_uuidof<IMediaPosition>()        { return IID_IMediaPosition; }
++   template <> inline const GUID& __mingw_uuidof<IMediaEventEx>()         { return IID_IMediaEventEx; }
++   template <> inline const GUID& __mingw_uuidof<IBasicAudio>()           { return IID_IBasicAudio; }
++   template <> inline const GUID& __mingw_uuidof<IVMRFilterConfig>()      { return IID_IVMRFilterConfig; }
++   template <> inline const GUID& __mingw_uuidof<IVMRWindowlessControl>() { return IID_IVMRWindowlessControl; }
++
++   namespace juce
++   {
++       struct ISampleGrabber;
++       struct ISampleGrabberCB;
++   }
++
++   template <> inline const GUID& __mingw_uuidof<juce::ISampleGrabber>()
++   {
++       static const GUID g = { 0x6B652FFF, 0x11FE, 0x4fce, { 0x92, 0xAD, 0x02, 0x66, 0xB5, 0xD7, 0xC7, 0x8F } };
++       return g;
++   }
++
++   template <> inline const GUID& __mingw_uuidof<juce::ISampleGrabberCB>()
++   {
++       static const GUID g = { 0x0579154A, 0x2B53, 0x4994, { 0xB0, 0xD0, 0xE7, 0x73, 0x14, 0x8E, 0xFF, 0x85 } };
++       return g;
++   }
++  #endif
++
++  #if ! JUCE_MINGW
++   #include "dshowasf.h"
++   #include "wmsdk.h"
++  #endif
+ 
+  #if ! JUCE_DONT_AUTOLINK_TO_WIN32_LIBRARIES
+   #pragma comment (lib, "strmiids.lib")
+--- a/modules/juce_video/native/juce_CameraDevice_windows.h
++++ b/modules/juce_video/native/juce_CameraDevice_windows.h
+@@ -358,6 +358,12 @@
+ 
+     bool createFileCaptureFilter (const File& file, int quality)
+     {
++       #if JUCE_MINGW
++        // SightLine never records video, and the Windows Media SDK headers it
++        // would need are not part of MinGW.
++        juce::ignoreUnused (file, quality);
++        return false;
++       #else
+         removeFileCaptureFilter();
+         file.deleteFile();
+         mediaControl->Stop();
+@@ -451,6 +457,7 @@
+             mediaControl->Run();
+ 
+         return false;
++       #endif
+     }
+ 
+     void removeFileCaptureFilter()
+--- a/modules/juce_video/native/juce_Video_windows.h
++++ b/modules/juce_video/native/juce_Video_windows.h
+@@ -32,6 +32,12 @@
+   ==============================================================================
+ */
+ 
++#if JUCE_MINGW
++// MinGW's evr.h omits this declaration and no import library exports it.
++static const CLSID CLSID_EnhancedVideoRenderer
++    = { 0xFA10746C, 0x9B63, 0x4B6C, { 0xBC, 0x49, 0xFC, 0x30, 0x0E, 0xA5, 0xF2, 0x56 } };
++#endif
++
+ namespace VideoRenderers
+ {
+     //==============================================================================

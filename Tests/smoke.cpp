@@ -68,8 +68,14 @@ namespace
 
         float peak = 0.0f;
         bool finite = true;
+        double sumSquares = 0.0;
+        long long measured = 0;
+        float comp1 = 0.0f, comp2 = 0.0f, limiter = 0.0f;
 
-        for (int block = 0; block < 188; ++block)
+        constexpr int blocks = 188;
+        constexpr int settleBlocks = blocks / 2;   // measure loudness once tails and envelopes settle
+
+        for (int block = 0; block < blocks; ++block)
         {
             buffer.clear();
             vocal.fill (buffer.getWritePointer (0), buffer.getWritePointer (1), buffer.getNumSamples());
@@ -85,9 +91,29 @@ namespace
                         finite = false;
 
                     peak = juce::jmax (peak, std::abs (data[i]));
+
+                    if (block >= settleBlocks)
+                    {
+                        sumSquares += (double) data[i] * data[i];
+                        ++measured;
+                    }
                 }
             }
+
+            if (block >= settleBlocks)
+            {
+                comp1 = juce::jmax (comp1, proc.comp1Gr());
+                comp2 = juce::jmax (comp2, proc.comp2Gr());
+                limiter = juce::jmax (limiter, proc.limiterGr());
+            }
         }
+
+        // Not a pass/fail check: a level report so presets can be compared and
+        // kept roughly loudness-matched against each other.
+        const double rms = std::sqrt (sumSquares / (double) juce::jmax (1LL, measured));
+        std::fprintf (stderr, "        %-26s rms %6.1f dBFS  peak %6.1f dBFS  GR fast %4.1f  smooth %4.1f  limit %4.1f dB\n",
+                      name, juce::Decibels::gainToDecibels ((float) rms, -120.0f),
+                      juce::Decibels::gainToDecibels (peak, -120.0f), comp1, comp2, limiter);
 
         juce::String prefix (name);
 
@@ -119,8 +145,8 @@ int main()
 
     vx::VoxlineProcessor proc;
 
-    check (proc.getNumPrograms() == vx::factoryPresetCount(), "ten factory programs");
-    check (vx::factoryPresetCount() == 10, "preset table has ten entries");
+    check (proc.getNumPrograms() == vx::factoryPresetCount(), "every preset is a host program");
+    check (vx::factoryPresetCount() == 15, "preset table has fifteen entries");
 
     proc.setPlayConfigDetails (2, 2, 48000.0, 512);
     proc.prepareToPlay (48000.0, 512);

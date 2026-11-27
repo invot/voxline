@@ -85,11 +85,25 @@ Pitch -> EQ -> De-ess -> Fast comp -> Smooth comp -> Drive -> Chorus -> Delay ->
 | 08 | Telephone | band-passed, mono, lo-fi | FX, skits, filtered verses |
 | 09 | Rap / Front | tight, dry, present | rap lead, fast delivery |
 | 10 | Air / Whisper | breathy, close, delicate | quiet, intimate, whisper layers |
+| 11 | Lead Double | tight tuned, tucked, de-essed | unison doubles of the lead |
+| 12 | Harmony Stack | wide, dark, blended | stacked 3rds/5ths behind a chorus |
+| 13 | Ooh / Pad | soft, washed, very wide | sustained oohs and aahs, pads |
+| 14 | Gang / Shout | crunchy, mid-forward, roomy | gang vocals, chants, crowd hooks |
+| 15 | Ad-libs | filtered, wide, thrown | ad-libs, call-and-response |
 
 Every preset sets every stage explicitly: pitch, EQ, de-esser, both compressors,
 drive, chorus, delay, reverb, stereo width and the limiter, including whether each
 is on. Nothing is left to a default. The smoke harness fails if a preset leaves a
 parameter out, sets one twice, or uses a value outside its range.
+
+Presets 11-15 are for backing vocals. They sit behind a lead rather than in front
+of it: a higher low cut and a presence dip leave the lead its space, the de-esser
+works harder because stacked esses add up, tuning is tighter so parts lock
+together, and the width and returns are wider than a lead would get.
+
+The presets are gain-staged to come out at roughly the same level (within about
+1 dB on the smoke harness's test vocal), so switching presets compares sound, not
+loudness.
 
 **Key and scale are not part of a preset.** They belong to the song, so changing
 presets keeps them. Bypass is untouched too.
@@ -165,8 +179,8 @@ installer ships nothing besides `voxline.exe` and the VST3 bundle.
   - THROW works with the Delay stage off.
 - `VoxlineSmoke` checks that every preset sets every stage in range, that every
   parameter has a control on the page, and that presets keep key and scale. It also
-  renders all ten presets with a synthetic vocal (finite, not silent, under the
-  ceiling), round-trips program and state, selects every stage, and writes the
+  renders every preset with a synthetic vocal (finite, not silent, under the
+  ceiling) and prints each one's output level and gain reduction, round-trips program and state, selects every stage, and writes the
   screenshots above.
 - Not checked here: a real DAW host scan/load, audio device I/O, or sample rates
   other than 48 kHz. The VST3 is unsigned, so Windows may warn on first load.

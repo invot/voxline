@@ -236,10 +236,11 @@ installer ships nothing besides `voxline.exe` and the VST3 bundle.
 
 ```
 Source/core/        JUCE-free DSP: tune, EQ, dynamics, drive, motion, delay, FDN reverb, chain
-Source/ui/          Theme, widgets, graphs, and the ChainView (tiles + selected stage)
+Source/ui/          Theme (dark panels, ioline green accent), widgets, graphs, ChainView
 Source/             Parameters, presets, processor, editor
 Tests/              main.cpp (DSP checks), smoke.cpp (plugin/editor checks + screenshots)
-Tools/              IconGen.cpp, which draws the app icon from the interface mark
+Tools/              IconGen.cpp, which draws the app icon from the ioline mark
+Assets/             The ioline app icon: icon.svg plus the 1024 and 256 px PNGs macOS uses
 third_party/        Signalsmith Stretch and Signalsmith Linear (MIT) + licenses
 ci/                 The JUCE 8.0.6 MinGW patch the release build applies
 installer/          Inno Setup script for the Windows installer

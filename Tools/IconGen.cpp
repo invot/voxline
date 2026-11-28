@@ -3,7 +3,7 @@
     The mark lives in Source/ui/Logo.h, so the standalone's shell icon is the
     same drawing as the logo in the editor header.
 
-    Usage: VoxlineIcon [output.ico] [preview.png]
+    Usage: VoxlineIcon [output.ico] [preview.png] [preview size]
 */
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -245,8 +245,9 @@ int main (int argc, char* argv[])
     if (argc > 2)
     {
         const juce::File previewFile = cwd.getChildFile (juce::String (argv[2]));
+        const int previewSize = argc > 3 ? juce::String (argv[3]).getIntValue() : 256;
 
-        if (! writePng (previewFile, renderIcon (256)))
+        if (! writePng (previewFile, renderIcon (previewSize > 0 ? previewSize : 256)))
         {
             std::fprintf (stderr, "Could not write %s\n", previewFile.getFullPathName().toRawUTF8());
             return 1;

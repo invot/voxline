@@ -67,7 +67,7 @@ void EqGraph::paint (juce::Graphics& g)
         ? "low cut " + juce::String (juce::roundToInt (p.eq.hpf)) + " Hz" + sep() + "air " + signedDb (p.eq.airGain)
         : juce::String ("EQ OFF");
 
-    drawGraphFrame (g, r, pal::teal, "EQ RESPONSE", summary, p.eq.on);
+    drawGraphFrame (g, r, pal::brand, "EQ RESPONSE", summary, p.eq.on);
 
     const auto plot = plotArea (r);
 
@@ -136,7 +136,7 @@ void EqGraph::paint (juce::Graphics& g)
     fill.lineTo (plot.getRight() - 2.0f, plot.getBottom() - 2.0f);
     fill.closeSubPath();
 
-    const auto accent = p.eq.on ? pal::teal : pal::teal.withAlpha (0.35f);
+    const auto accent = p.eq.on ? pal::brand : pal::brand.withAlpha (0.35f);
 
     juce::ColourGradient grad (accent.withAlpha (p.eq.on ? 0.22f : 0.08f), plot.getX(), plot.getY(),
                                accent.withAlpha (0.0f), plot.getX(), plot.getBottom(), false);
@@ -156,7 +156,7 @@ void EqGraph::paint (juce::Graphics& g)
             const float y = yFor ((float) eq.responseDb ((double) f));
             g.setColour (pal::panel);
             g.fillEllipse (x - 3.5f, y - 3.5f, 7.0f, 7.0f);
-            g.setColour (pal::teal);
+            g.setColour (pal::brand);
             g.drawEllipse (x - 3.5f, y - 3.5f, 7.0f, 7.0f, 1.2f);
         }
     }
@@ -252,7 +252,7 @@ void SpaceGraph::paint (juce::Graphics& g)
 
             const float x = xFor (seconds);
             const float h = (plot.getHeight() - 12.0f) * juce::jlimit (0.0f, 1.0f, level);
-            g.setColour (pal::teal.withAlpha (0.65f));
+            g.setColour (pal::brand.withAlpha (0.65f));
             g.drawLine (x, plot.getBottom() - 4.0f, x, plot.getBottom() - 4.0f - h, 1.6f);
             g.fillEllipse (x - 2.0f, plot.getBottom() - 6.0f - h, 4.0f, 4.0f);
 

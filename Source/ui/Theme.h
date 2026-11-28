@@ -15,7 +15,8 @@ namespace pal
     inline const juce::Colour stroke    { 0xff36363c };
     inline const juce::Colour text      { 0xffe8e8ec };
     inline const juce::Colour dim       { 0xff8c8c94 };
-    inline const juce::Colour teal      { 0xff4fd8c8 };
+    // The ioline brand accent, from the approved icon (Assets/icon.svg).
+    inline const juce::Colour brand     { 0xff5bdd83 };
     inline const juce::Colour pink      { 0xffff8a9b };
     inline const juce::Colour purple    { 0xffa99bff };
     inline const juce::Colour yellow    { 0xfff3e3a6 };
@@ -80,8 +81,8 @@ public:
         setColour (juce::TextEditor::focusedOutlineColourId, pal::purple);
 
         setColour (juce::Slider::backgroundColourId, pal::stroke);
-        setColour (juce::Slider::trackColourId, pal::teal.withAlpha (0.6f));
-        setColour (juce::Slider::thumbColourId, pal::teal);
+        setColour (juce::Slider::trackColourId, pal::brand.withAlpha (0.6f));
+        setColour (juce::Slider::thumbColourId, pal::brand);
 
         setColour (juce::TextButton::buttonColourId, pal::panelSoft);
         setColour (juce::TextButton::buttonOnColourId, pal::purple);

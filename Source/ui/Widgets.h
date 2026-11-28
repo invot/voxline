@@ -394,7 +394,7 @@ private:
         g.fillRoundedRectangle (track, 1.5f);
 
         auto fill = track.withWidth (track.getWidth() * level);
-        g.setColour (level > 0.92f ? pal::pink : pal::teal);
+        g.setColour (level > 0.92f ? pal::pink : pal::brand);
         g.fillRoundedRectangle (fill, 1.5f);
     }
 

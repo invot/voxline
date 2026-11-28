@@ -25,7 +25,7 @@ namespace
               G::None },
 
             { "EQ", "Low cut, four bands and a top roll-off. Tone tilts the whole curve darker or brighter.",
-              pal::teal, { P::EqOn }, P::Tone, "Tone",
+              pal::brand, { P::EqOn }, P::Tone, "Tone",
               { { "Cut + tilt", {}, { { P::Tone, "Tilt" }, { P::Hpf, "Low cut" }, { P::LpFreq, "Top cut" } } },
                 { "Low", {}, { { P::LowGain, "Gain" }, { P::LowFreq, "Freq" } } },
                 { "Body", {}, { { P::BodyGain, "Gain" }, { P::BodyFreq, "Freq" }, { P::BodyQ, "Q" } } },
@@ -63,7 +63,7 @@ namespace
 
             { "Delay", "Free or tempo-synced echoes, ducked so the repeats sit between phrases. "
                        "Hold THROW for a send spike.",
-              pal::teal, { P::DelayOn }, P::DelayMix, "Send",
+              pal::brand, { P::DelayOn }, P::DelayMix, "Send",
               { { "Time", {}, { { P::DelaySync, "Sync" }, { P::DelayTime, "Free time" },
                                 { P::DelayFeedback, "Feedback" }, { P::DelayPingPong, "Ping-pong" } } },
                 { "Send", {}, { { P::DelayMix, "Send" }, { P::DelayDuck, "Ducking" }, { P::DelayTone, "Tone" } } } },
@@ -81,7 +81,7 @@ namespace
 
             { "Stereo", "Stereo separation: overall mid/side width, plus the chorus and reverb widths. "
                         "0% is mono, 100% natural, 200% wide.",
-              pal::teal, {}, P::Width, "Width",
+              pal::brand, {}, P::Width, "Width",
               { { "Width", {}, { { P::Width, "Overall width" }, { P::MotionWidth, "Chorus width" },
                                  { P::VerbWidth, "Reverb width" } } } },
               G::None },

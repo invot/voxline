@@ -57,7 +57,7 @@ if (EXISTS "${VX_JUCE_DIR}/CMakeLists.txt")
         MICROPHONE_PERMISSION_ENABLED TRUE
         MICROPHONE_PERMISSION_TEXT "voxline needs audio input to process your voice."
         COPY_PLUGIN_AFTER_BUILD   FALSE
-        FORMATS                   VST3 Standalone
+        FORMATS                   VST3 AU Standalone
         VST3_CATEGORIES           "Fx")
 
     target_sources(Voxline PRIVATE

@@ -1,12 +1,12 @@
 #!/bin/bash
-# Build universal macOS VST3 and standalone bundles with Apple Clang and JUCE 8.
+# Build universal macOS VST3, AU and standalone bundles with Apple Clang and JUCE 8.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 usage() {
     cat <<'EOF'
 Usage: bash ./build-macos.sh [build|tests|smoke|clean]
-  build   Build the VST3 and standalone app (default).
+  build   Build the VST3, AU and standalone app (default).
   tests   Build and run the headless DSP checks; JUCE is optional.
   smoke   Build and run the processor/editor smoke checks and screenshots.
   clean   Remove build-macos/ before building (may precede tests or smoke).
@@ -86,11 +86,35 @@ case "$ACTION" in
         VX_SNAPSHOT_DIR="$ROOT/docs/screenshots" "$BUILD_DIR/VoxlineSmoke"
         ;;
     build)
-        cmake --build "$BUILD_DIR" --target Voxline_VST3 Voxline_Standalone --parallel "$JOBS"
+        cmake --build "$BUILD_DIR" --target Voxline_VST3 Voxline_AU Voxline_Standalone --parallel "$JOBS"
+        ARTEFACTS="$BUILD_DIR/Voxline_artefacts/Release"
+        VST3_BUNDLE="$ARTEFACTS/VST3/voxline.vst3"
+        AU_BUNDLE="$ARTEFACTS/AU/voxline.component"
+        APP_BUNDLE="$ARTEFACTS/Standalone/voxline.app"
+        for bundle in "$VST3_BUNDLE" "$AU_BUNDLE" "$APP_BUNDLE"; do
+            if [ ! -d "$bundle" ]; then
+                echo "Expected bundle missing after the build: $bundle" >&2
+                exit 1
+            fi
+        done
+
+        # Pack the three bundles into one macOS release zip, ready to copy into
+        # ~/Library/Audio/Plug-Ins/{VST3,Components} and /Applications. ditto
+        # keeps the bundle contents, symlinks and metadata intact.
+        DIST_DIR="$ROOT/dist"
+        ZIP="$DIST_DIR/voxline-macOS.zip"
+        STAGE="$DIST_DIR/voxline-macOS"
+        rm -rf "$STAGE" "$ZIP"
+        mkdir -p "$STAGE"
+        ditto "$VST3_BUNDLE" "$STAGE/voxline.vst3"
+        ditto "$AU_BUNDLE" "$STAGE/voxline.component"
+        ditto "$APP_BUNDLE" "$STAGE/voxline.app"
+        ditto -c -k --sequesterRsrc "$STAGE" "$ZIP"
+        rm -rf "$STAGE"
+
         echo
         echo "Built:"
-        printf '%s\n' \
-            "$BUILD_DIR/Voxline_artefacts/Release/VST3/voxline.vst3" \
-            "$BUILD_DIR/Voxline_artefacts/Release/Standalone/voxline.app"
+        printf '%s\n' "$VST3_BUNDLE" "$AU_BUNDLE" "$APP_BUNDLE"
+        echo "Packaged: $ZIP"
         ;;
 esac

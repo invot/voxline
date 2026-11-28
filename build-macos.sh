@@ -8,6 +8,7 @@ Usage: bash build-macos.sh [clean] [build|all|tests|smoke|configure] [jobs]
   all     Alias for build.
   tests   Build and run the headless checks. JUCE is optional.
   smoke   Run the processor and editor smoke checks and write screenshots.
+  configure  Configure the build tree without compiling.
   clean   Remove the selected macOS build tree before running the command.
 
 Requires macOS, Xcode Command Line Tools, and CMake 3.22 or later.

@@ -175,7 +175,7 @@ git clone --depth 1 --branch 8.0.6 https://github.com/juce-framework/JUCE.git .t
 
 ```sh
 bash build-macos.sh build       # build and package all three formats
-bash build-macos.sh tests       # run the headless checks; JUCE is optional
+bash build-macos.sh tests       # run the headless checks (JUCE optional)
 bash build-macos.sh smoke       # run the editor checks and render screenshots
 bash build-macos.sh clean build # remove the macOS build tree before building
 ```

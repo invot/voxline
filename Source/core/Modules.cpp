@@ -393,8 +393,8 @@ void MotionModule::process (float* l, float* r, int n, const MotionParams& p)
 void DelayModule::prepare (double sampleRate, int)
 {
     sr = std::max (8000.0, sampleRate);
-    delayL.prepare ((int) (sr * 1.55) + 8);
-    delayR.prepare ((int) (sr * 1.55) + 8);
+    delayL.prepare ((int) (sr * maxDelaySeconds) + 8);
+    delayR.prepare ((int) (sr * maxDelaySeconds) + 8);
     timeSamples.setTime (sr, 120.0f);
     timeSamples.snap (300.0f * 0.001f * (float) sr);
     throwSmooth.setTime (sr, 40.0f);
@@ -447,9 +447,9 @@ void DelayModule::process (float* l, float* r, int n, const DelayParams& p, cons
     float delayMs = p.timeMs;
 
     if (p.sync != SyncFree)
-        delayMs = (60000.0f / std::max (20.0f, p.bpm)) * syncBeats (p.sync);
+        delayMs = (60000.0f / std::max (minBpm, p.bpm)) * syncBeats (p.sync);
 
-    timeSamples.target = std::max (1.0f, std::min ((float) (sr * 1.5), delayMs * 0.001f * (float) sr));
+    timeSamples.target = std::max (1.0f, std::min ((float) (sr * maxDelaySeconds), delayMs * 0.001f * (float) sr));
 
     if (! timePrimed)
     {
@@ -591,8 +591,9 @@ void LimiterModule::process (float* l, float* r, int n, bool on, float ceilingDb
             gain = releaseCoef * gain + (1.0f - releaseCoef) * held;
 
         const float applied = gain;
-        float outL = audioL.read ((float) lookahead) * applied;
-        float outR = audioR.read ((float) lookahead) * applied;
+        // push() already advanced the cursor; retain the full lookahead delay.
+        float outL = audioL.read ((float) lookahead + 1.0f) * applied;
+        float outR = audioR.read ((float) lookahead + 1.0f) * applied;
 
         if (on)
         {

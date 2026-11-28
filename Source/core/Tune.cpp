@@ -18,7 +18,7 @@ struct TuneModule::Impl
 
     std::vector<float> outL, outR;          // one block of stretcher output
     std::vector<float> stretchBufL, stretchBufR;
-    int stretchCount = 0;
+    int stretchCount = 1; // one zero sample of cubic interpolation history
     double resamplePos = 1.0;
     double carry = 0.0;
 
@@ -252,7 +252,7 @@ void TuneModule::prepare (double sampleRate, int maxBlock)
     impl->outR.assign ((size_t) blockCap, 0.0f);
     impl->stretchBufL.assign ((size_t) blockCap, 0.0f);
     impl->stretchBufR.assign ((size_t) blockCap, 0.0f);
-    impl->stretchCount = 0;
+    impl->stretchCount = 1;
     impl->resamplePos = 1.0;
     impl->carry = 0.0;
 
@@ -268,11 +268,9 @@ void TuneModule::prepare (double sampleRate, int maxBlock)
 
     yin.prepare (sr);
 
-    // The library reports 2048 samples for this configuration, but a streaming
-    // time-stretch with equal in/out blocks measures 102 samples more (the
-    // internal block/interval buffering). Report what actually comes out, so
-    // bypass and the host's delay compensation agree with the processed path.
-    latency = stretchLatency + impl->prime + 102;
+    // Interpolation starts with one history sample, so the first generated
+    // sample is preserved. The primed FIFO supplies the interpolation lookahead.
+    latency = stretchLatency + impl->prime;
 
     smoothedSemis = 0.0f;
     lastHz = 0.0f;
@@ -285,7 +283,8 @@ void TuneModule::reset()
         return;
 
     impl->stretch.reset();
-    impl->stretchCount = 0;
+    impl->stretchCount = 1;
+    impl->stretchBufL[0] = impl->stretchBufR[0] = 0.0f;
     impl->resamplePos = 1.0;
     impl->carry = 0.0;
 
@@ -357,23 +356,15 @@ void TuneModule::process (float* l, float* r, int n, const TuneParams& p)
 
     const double ratio = std::pow (2.0, (double) smoothedSemis / 12.0);
 
-    // Time-stretch by 1/ratio, then play the result back at `ratio`. The
+    // Generate ratio * n samples, then play the result back at `ratio`. The
     // resampler makes the pitch exact; the stretcher only has to handle a
     // near-unity time ratio, where it is clean.
-    double desired = (double) n / std::max (0.5, ratio) + impl->carry;
+    double desired = (double) n * ratio + impl->carry;
     int m = (int) std::floor (desired);
     impl->carry = desired - (double) m;
 
-    // Keep the output FIFO at its primed level. This also replaces the few
-    // samples the cubic interpolation holds back at each block boundary.
-    const int fillError = impl->prime - impl->fifoCount;
-    int correction = fillError / 2;
-
-    if (impl->fifoCount > impl->prime + 64)
-        correction = -(impl->fifoCount - impl->prime) / 2;
-
-    correction = std::max (-8, std::min (8, correction));
-    m = std::max (32, m + correction);
+    // Fractional output counts carry across calls, including calls small
+    // enough to produce no stretched samples. Do not force a minimum block.
     m = std::min (m, (int) impl->outL.size());
 
     impl->stretch.setTransposeSemitones (0.0f);

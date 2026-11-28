@@ -140,8 +140,9 @@ void ReverbModule::process (float* l, float* r, int n, const VerbParams& p, cons
         preR.push (r[i]);
 
         const float pre = preSamples.next();
-        float inL = preL.read (pre);
-        float inR = preR.read (pre);
+        // push() advances the cursor, so delay 1 reads the current sample.
+        float inL = preL.read (pre + 1.0f);
+        float inR = preR.read (pre + 1.0f);
 
         inL = apL2.process (apL1.process (inL));
         inR = apR2.process (apR1.process (inR));

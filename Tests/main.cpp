@@ -406,20 +406,8 @@ namespace
             vx::ChainParams p = neutralParams();
             p.tune.amount = 0.0f;
 
-            std::vector<float> l (96000, 0.0f), r (96000, 0.0f);
-            unsigned seed = 7;
-            auto rnd = [&]()
-            {
-                seed = seed * 1664525u + 1013904223u;
-                return (float) ((seed >> 9) & 0x7fffff) / (float) 0x7fffff;
-            };
-
-            for (int i = 0; i < 192; ++i)
-            {
-                const float w = 0.5f - 0.5f * (float) std::cos (6.283185307 * i / 192.0);
-                l[(size_t) (5000 + i)] = 0.5f * w * (rnd() * 2.0f - 1.0f);
-                r[(size_t) (5000 + i)] = l[(size_t) (5000 + i)];
-            }
+            std::vector<float> l (12000, 0.0f), r (12000, 0.0f);
+            l[5000] = r[5000] = 0.7f;
 
             for (int pos = 0; pos < (int) l.size(); pos += 512)
                 chain.process (l.data() + pos, r.data() + pos, std::min (512, (int) l.size() - pos), p);
@@ -434,9 +422,9 @@ namespace
                     found = i;
                 }
 
-            std::printf ("       processed burst peak at %d, reported latency %d\n",
+            std::printf ("       processed impulse delay %d, reported latency %d\n",
                          found - 5000, chain.latencySamples());
-            check (std::abs (found - 5000 - chain.latencySamples()) <= 64,
+            check (found - 5000 == chain.latencySamples(),
                    "processed path matches the reported latency");
         }
 
@@ -480,12 +468,161 @@ namespace
 
             check (allFinite (l), "full chain stays finite with every stage on");
             check (peak (l) <= 1.0001, "full chain stays inside full scale");
-            check (chain.latencySamples() >= 2700 && chain.latencySamples() <= 2800,
-                   "reported latency includes the tuner and limiter lookahead");
         }
     }
 
     // ---- regressions for fixed bugs -----------------------------------------
+
+    void testTuneContinuity()
+    {
+        // A pure sine never contains runs of exact zeros. Upward correction
+        // used to starve the resampler FIFO at ordinary host block sizes.
+        for (int block : { 1, 16, 256, 512, 2048 })
+        {
+            for (float cents : { -45.0f, 45.0f })
+            {
+                vx::TuneModule tune;
+                tune.prepare (kSr, block);
+                vx::TuneParams p;
+                p.amount = 1.0f;
+                p.speedMs = 1.0f;
+                const double hz = 220.0 * std::pow (2.0, cents / 1200.0);
+                std::vector<float> l (96000), r (96000);
+                for (int i = 0; i < (int) l.size(); ++i)
+                    l[(size_t) i] = r[(size_t) i] = 0.2f * (float) std::sin (6.283185307179586 * hz * i / kSr);
+                for (int pos = 0; pos < (int) l.size(); pos += block)
+                    tune.process (l.data() + pos, r.data() + pos, std::min (block, (int) l.size() - pos), p);
+
+                int silentRun = 0, longestRun = 0;
+                for (int i = 48000; i < (int) l.size(); ++i)
+                {
+                    silentRun = l[(size_t) i] == 0.0f ? silentRun + 1 : 0;
+                    longestRun = std::max (longestRun, silentRun);
+                }
+                const double error = 1200.0 * std::log2 (autocorrelationHz (l, 48000, 96000) / 220.0);
+                std::printf ("       tune block %d, input %+.0f ct: longest silence %d, error %+.1f ct\n",
+                             block, cents, longestRun, error);
+                check (longestRun <= 1 && allFinite (l) && allFinite (r), "pitch correction stays continuous");
+                check (std::abs (error) < 12.0, "pitch correction reaches the note in both directions");
+            }
+        }
+    }
+
+    void testTuneSmallBlocksAndLatency()
+    {
+        // With pitch off, every impulse must survive at the reported delay,
+        // even if the host splits a buffer into single-sample callbacks.
+        for (double sampleRate : { 44100.0, 48000.0, 96000.0 })
+        {
+            for (int block : { 1, 16, 32, 128, 512, 2048 })
+            {
+                vx::VocalChain chain;
+                chain.prepare (sampleRate, block);
+                auto p = neutralParams();
+                p.tune.on = false;
+                std::vector<float> input (24000, 0.0f);
+                input[4000] = 0.7f;
+                input[10000] = -0.4f;
+                input[16000] = 0.2f;
+                auto l = input, r = input;
+                for (int pos = 0; pos < (int) l.size(); pos += block)
+                    chain.process (l.data() + pos, r.data() + pos, std::min (block, (int) l.size() - pos), p);
+
+                const int latency = chain.latencySamples();
+                double worst = 0.0;
+                for (int i = latency; i < (int) l.size(); ++i)
+                    worst = std::max ({ worst, (double) std::abs (l[(size_t) i] - input[(size_t) (i - latency)]),
+                                       (double) std::abs (r[(size_t) i] - input[(size_t) (i - latency)]) });
+                const int observed = (int) (std::max_element (l.begin(), l.end()) - l.begin()) - 4000;
+                std::printf ("       rate %.0f block %d: latency %d, observed %d, worst impulse error %.6f\n",
+                             sampleRate, block, latency, observed, worst);
+                check (worst < 0.0001, "neutral chain preserves impulses at its reported latency");
+            }
+        }
+    }
+
+    void testTuneChangingBlocksAndPitch()
+    {
+        vx::TuneModule tune;
+        tune.prepare (kSr, 2048);
+        vx::TuneParams p;
+        p.amount = 1.0f;
+        p.speedMs = 1.0f;
+        std::vector<float> l (240000), r (240000);
+        double phase = 0.0;
+        for (int i = 0; i < (int) l.size(); ++i)
+        {
+            const double cents = (i / 12000) % 2 == 0 ? -45.0 : 45.0;
+            phase += 6.283185307179586 * 220.0 * std::pow (2.0, cents / 1200.0) / kSr;
+            l[(size_t) i] = r[(size_t) i] = 0.2f * (float) std::sin (phase);
+        }
+        const int blocks[] = { 1, 16, 127, 512, 2048 };
+        for (int pos = 0, blockIndex = 0; pos < (int) l.size(); ++blockIndex)
+        {
+            const int n = std::min (blocks[blockIndex % 5], (int) l.size() - pos);
+            tune.process (l.data() + pos, r.data() + pos, n, p);
+            pos += n;
+        }
+        bool continuous = true;
+        for (int i = 48001; i < (int) l.size(); ++i)
+            if (l[(size_t) i] == 0.0f && l[(size_t) (i - 1)] == 0.0f)
+                continuous = false;
+        check (continuous && allFinite (l) && allFinite (r),
+               "pitch correction stays continuous across changing pitches and callback sizes");
+    }
+
+    void testReverbZeroPreDelay()
+    {
+        int onset[2] {};
+        for (int pre = 0; pre <= 1; ++pre)
+        {
+            vx::ReverbModule reverb;
+            reverb.prepare (kSr, 512);
+            vx::VerbParams p;
+            p.preMs = (float) pre;
+            p.mix = 1.0f;
+            p.duck = 0.0f;
+            std::vector<float> l (72000, 0.0f), r (72000, 0.0f);
+            l[48000] = r[48000] = 0.8f;
+            for (int pos = 0; pos < (int) l.size(); pos += 512)
+                reverb.process (l.data() + pos, r.data() + pos, std::min (512, (int) l.size() - pos), p, nullptr, 0.5f);
+            onset[pre] = -1;
+            for (int i = 48001; i < (int) l.size(); ++i)
+                if (std::max (std::abs (l[(size_t) i]), std::abs (r[(size_t) i])) > 1.0e-6f)
+                {
+                    onset[pre] = i;
+                    break;
+                }
+        }
+        check (onset[0] > 48000 && std::abs (onset[1] - onset[0] - 48) <= 1,
+               "zero reverb pre-delay arrives 1 ms before the 1 ms setting");
+    }
+
+    void testSlowSyncedDelay()
+    {
+        for (float bpm : { 120.0f, 60.0f, 20.0f })
+        {
+            vx::DelayModule delay;
+            delay.prepare (kSr, 512);
+            vx::DelayParams p;
+            p.on = true;
+            p.sync = vx::Sync2;
+            p.bpm = bpm;
+            p.mix = 1.0f;
+            p.feedback = 0.0f;
+            p.duck = 0.0f;
+            p.pingPong = false;
+            const int expected = (int) std::lround (kSr * 120.0 / bpm);
+            std::vector<float> l ((size_t) expected + 1024, 0.0f), r = l;
+            l[0] = r[0] = 0.8f;
+            for (int pos = 0; pos < (int) l.size(); pos += 512)
+                delay.process (l.data() + pos, r.data() + pos, std::min (512, (int) l.size() - pos), p, nullptr, 0.0f);
+            int echo = -1;
+            for (int i = 1; i < (int) l.size(); ++i)
+                if (std::abs (l[(size_t) i]) > 0.1f) { echo = i; break; }
+            check (echo == expected, "half-note delay follows the host tempo down to 20 BPM");
+        }
+    }
 
     void testDeEsserIsTransparentWhenIdle()
     {
@@ -614,6 +751,11 @@ int main()
     testReverb();
     testTune();
     testChainLatencyAndStability();
+    testTuneContinuity();
+    testTuneSmallBlocksAndLatency();
+    testTuneChangingBlocksAndPitch();
+    testReverbZeroPreDelay();
+    testSlowSyncedDelay();
     testDeEsserIsTransparentWhenIdle();
     testLimiterLooksAhead();
     testBypassEngagesCleanly();

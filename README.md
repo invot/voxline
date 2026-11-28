@@ -111,9 +111,9 @@ presets keeps them. Bypass is untouched too.
 ## Latency and bypass
 
 The tuner is always running, so the latency is constant whether Pitch is on, off or
-the plugin is bypassed. At 48 kHz the chain reports **2734 samples (about 57 ms)**:
-2048 samples of Signalsmith Stretch, 512 samples of FIFO priming, 102 samples of
-buffering, and 72 samples of limiter look-ahead. The host's delay compensation
+the plugin is bypassed. At 48 kHz the chain reports **2632 samples (about 55 ms)**:
+2048 samples of Signalsmith Stretch, 512 samples of FIFO priming,
+and 72 samples of limiter look-ahead. The host's delay compensation
 handles it.
 
 Bypass is latency-matched and crossfades over about 25 ms. The chain keeps running
@@ -177,14 +177,19 @@ installer ships nothing besides `voxline.exe` and the VST3 bundle.
   - the idle de-esser is flat at its own crossover;
   - the limiter's gain comes down ahead of a peak;
   - engaging bypass immediately plays the latency-matched input;
-  - THROW works with the Delay stage off.
+  - THROW works with the Delay stage off;
+  - tuning stays continuous in both directions, including changing pitches and block sizes;
+  - neutral audio matches the reported latency with 1–2048 sample blocks at 44.1, 48 and 96 kHz;
+  - zero reverb pre-delay adds no buffer wraparound;
+  - half-note echoes stay synced down to 20 BPM.
 - `VoxlineSmoke` checks that every preset sets every stage in range, that every
   parameter has a control on the page, and that presets keep key and scale. It also
   renders every preset with a synthetic vocal (finite, not silent, under the
   ceiling) and prints each one's output level and gain reduction, round-trips program and state, selects every stage, and writes the
   screenshots above.
-- Not checked here: a real DAW host scan/load, audio device I/O, or sample rates
-  other than 48 kHz. The VST3 is unsigned, so Windows may warn on first load.
+- Not checked here: a real DAW host scan/load or audio device I/O. The full DSP
+  and preset suite runs at 48 kHz; neutral latency is also checked at 44.1 and
+  96 kHz. The VST3 is unsigned, so Windows may warn on first load.
 
 ## Layout
 

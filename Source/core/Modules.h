@@ -108,6 +108,9 @@ public:
     void process (float* l, float* r, int n, const DelayParams&, const float* duck, float throwAmount);
 
 private:
+    static constexpr float minBpm = 20.0f;
+    // The longest sync choice is a half note (two beats).
+    static constexpr float maxDelaySeconds = 120.0f / minBpm;
     double sr = 48000.0;
     DelayLine delayL, delayR;
     OnePole lpL, lpR, hpL, hpR;

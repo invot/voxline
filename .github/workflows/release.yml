@@ -1,7 +1,4 @@
-# Builds the Windows VST3, standalone app and installer on every push to main
-# and publishes them as the single rolling release "latest". The release sits on
-# one tag, also called "latest", which is moved to the newest commit each time,
-# so no version tags pile up.
+# Builds the Windows and macOS downloads for the rolling latest release.
 #
 # The toolchain matches the local build exactly: WinLibs GCC 16.2.0 (UCRT,
 # posix-seh, r3) and JUCE 8.0.6 with ci/juce-8.0.6-mingw.patch, both pinned by
@@ -16,7 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 # Only the newest push gets released; an older build still running is cancelled.
 concurrency:
@@ -133,6 +130,73 @@ jobs:
           "$iscc" installer/voxline.iss
           ls -la dist
 
+      - name: Upload Windows downloads
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: |
+            dist/voxline-Setup-Windows.exe
+            dist/voxline-VST3-Windows.zip
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      JUCE_MACOS_SHA256: 89e32f3d989d43e87bec3bac82bb6ea19e58d96b14853c41a8151071598ba613
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache JUCE
+        id: juce-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/JUCE-8.0.6
+          key: juce-macos-${{ env.JUCE_MACOS_SHA256 }}
+      - name: Download JUCE 8.0.6
+        if: steps.juce-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 3 -o juce.zip https://github.com/juce-framework/JUCE/archive/refs/tags/8.0.6.zip
+          echo "$JUCE_MACOS_SHA256  juce.zip" | shasum -a 256 -c -
+          unzip -q juce.zip
+          rm juce.zip
+      - name: Run DSP tests
+        run: VX_JUCE_DIR="$RUNNER_TEMP/JUCE-8.0.6" bash build-macos.sh tests 4
+      - name: Build and package macOS bundles
+        run: VX_JUCE_DIR="$RUNNER_TEMP/JUCE-8.0.6" bash build-macos.sh build 4
+      - name: Check Audio Unit metadata
+        run: |
+          set -euo pipefail
+          plist=dist/voxline.component/Contents/Info.plist
+          test "$(/usr/libexec/PlistBuddy -c 'Print :AudioComponents:0:type' "$plist")" = 'aufx'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :AudioComponents:0:subtype' "$plist")" = 'Vxln'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :AudioComponents:0:manufacturer' "$plist")" = 'Cdbx'
+      - name: Upload macOS downloads
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dist
+          path: dist/voxline-macOS.zip
+          if-no-files-found: error
+
+  publish:
+    needs: [windows, macos]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect Windows downloads
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-dist
+          path: dist
+      - name: Collect macOS downloads
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-dist
+          path: dist
       - name: Publish the "latest" release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -144,6 +208,7 @@ jobs:
             echo
             echo "- **voxline-Setup-Windows.exe**: installs the standalone app and \`voxline.vst3\` into \`C:\\Program Files\\Common Files\\VST3\`."
             echo "- **voxline-VST3-Windows.zip**: the VST3 bundle on its own; unzip into \`C:\\Program Files\\Common Files\\VST3\`."
+            echo "- **voxline-macOS.zip** contains the VST3, Audio Unit, and standalone app for Apple Silicon and Intel. Install the .component in ~/Library/Audio/Plug-Ins/Components for Logic Pro and GarageBand."
             echo
             echo "This release is replaced on every push to \`main\`."
           } > notes.md
@@ -157,4 +222,5 @@ jobs:
             --notes-file notes.md \
             --latest \
             dist/voxline-Setup-Windows.exe \
-            dist/voxline-VST3-Windows.zip
+            dist/voxline-VST3-Windows.zip \
+            dist/voxline-macOS.zip

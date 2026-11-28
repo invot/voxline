@@ -155,53 +155,41 @@ in `CMakeLists.txt`. If the toolchain moves, edit `TOOLS` in `build.sh`.
 
 ### macOS
 
-The macOS script builds universal Apple Silicon + Intel VST3, Audio Unit and
-standalone bundles for macOS 11 or newer. Install Xcode Command Line Tools and CMake 3.22+,
-then get the same JUCE version used by the Windows build:
+Download `voxline-macOS.zip` for macOS 11 or later on Apple Silicon or Intel.
+It contains the VST3, Audio Unit, and standalone app. The bundles are ad-hoc
+signed. [Latest release](https://github.com/invot/voxline/releases/latest)
 
-```bash
-xcode-select --install   # if the developer tools are not installed yet
-brew install cmake
+- For Logic Pro and GarageBand, copy the complete `voxline.component` to
+  `~/Library/Audio/Plug-Ins/Components/`, then reopen the host. To validate the
+  installed Audio Unit in Terminal, run `auval -v aufx Vxln Cdbx`.
+- For VST3 hosts, copy `voxline.vst3` to `~/Library/Audio/Plug-Ins/VST3/` and rescan.
+- To run the standalone app, open `voxline.app` or copy it to `/Applications`.
+
+To build locally, install the Xcode Command Line Tools (`xcode-select --install`),
+CMake 3.22 or later, and JUCE 8.0.6. Set `VX_JUCE_DIR` to an existing JUCE
+checkout or use `.tools/JUCE-8.0.6`.
+
+```sh
 git clone --depth 1 --branch 8.0.6 https://github.com/juce-framework/JUCE.git .tools/JUCE-8.0.6
-bash ./build-macos.sh
-bash ./build-macos.sh tests
-bash ./build-macos.sh smoke   # requires a graphical macOS session
-bash ./build-macos.sh clean   # remove build-macos/ and rebuild
 ```
 
-The build uses Apple Clang and a separate `build-macos/` directory. Outputs:
-
-```text
-build-macos/Voxline_artefacts/Release/VST3/voxline.vst3
-build-macos/Voxline_artefacts/Release/AU/voxline.component
-build-macos/Voxline_artefacts/Release/Standalone/voxline.app
-dist/voxline-macOS.zip
+```sh
+bash build-macos.sh build       # build and package all three formats
+bash build-macos.sh tests       # run the headless checks; JUCE is optional
+bash build-macos.sh smoke       # run the editor checks and render screenshots
+bash build-macos.sh clean build # remove the macOS build tree before building
 ```
 
-Set `VX_JUCE_DIR=/path/to/JUCE` to use another checkout. The script also accepts
-the existing `../SightLine/.tools/JUCE-8.0.6` checkout if the local copy is absent.
-The `tests` command can run without JUCE. Set `VX_MACOS_ARCHITECTURES=arm64` or
-`VX_MACOS_ARCHITECTURES=x86_64` for a single architecture, `JOBS=4` to limit build
-parallelism, or `MACOSX_DEPLOYMENT_TARGET` to change the minimum macOS version.
-For example:
-
-```bash
-VX_JUCE_DIR="$HOME/JUCE" VX_MACOS_ARCHITECTURES=arm64 bash ./build-macos.sh
-```
-
-The build also packs all three bundles into `dist/voxline-macOS.zip`. Copy the
-complete `voxline.vst3` bundle into `~/Library/Audio/Plug-Ins/VST3/` for a local
-DAW to scan, and copy `voxline.component` into
-`~/Library/Audio/Plug-Ins/Components/` so Logic and GarageBand list it under
-Audio Units (`auval -v aufx Vxln Cdbx` should find it). Copy `voxline.app` into
-`/Applications` if desired. The script creates local builds; it does not sign,
-notarize, or publish them.
-The rolling GitHub release below still contains Windows builds only.
+The bundles are under `build-macos/Voxline_artefacts/Release/` in `VST3/`, `AU/`,
+and `Standalone/`. The script copies the Audio Unit to `dist/voxline.component`
+and writes `dist/voxline-macOS.zip`. Set `VX_MACOS_ARCHITECTURES=arm64` or
+`x86_64` for a single-architecture build. Set `JOBS` or pass a job count as the
+second argument to control build parallelism. `MACOSX_DEPLOYMENT_TARGET` defaults
+to `11.0`.
 
 ### Release build (CI)
 
-`.github/workflows/release.yml` runs on every push to `main` (or by hand from the
-Actions tab) on `windows-latest`:
+`.github/workflows/release.yml` runs on every push to `main` or by hand from the Actions tab. On Windows, it:
 
 1. Downloads WinLibs GCC 16.2.0 and JUCE 8.0.6, both pinned by SHA-256, and applies
    `ci/juce-8.0.6-mingw.patch`. That is the same patch the local JUCE under
@@ -212,7 +200,9 @@ Actions tab) on `windows-latest`:
 3. Runs both test executables; any failure stops the release.
 4. Packages `dist/voxline-VST3-Windows.zip` and, with Inno Setup
    (`installer/voxline.iss`), `dist/voxline-Setup-Windows.exe`.
-5. Replaces the rolling `latest` release and tag with the new files.
+The macOS job runs the DSP checks and packages the universal VST3, Audio Unit,
+and standalone app. Both jobs must pass before CI updates the rolling `latest`
+release and tag.
 
 Both binaries are statically linked and import only Windows system DLLs, so the
 installer ships nothing besides `voxline.exe` and the VST3 bundle.

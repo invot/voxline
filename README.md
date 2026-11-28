@@ -122,6 +122,8 @@ input exactly.
 
 ## Build
 
+### Windows
+
 The project uses the bundled toolchain next to the sibling `SightLine` checkout:
 
 - JUCE 8.0.6 at `../SightLine/.tools/JUCE-8.0.6`
@@ -149,6 +151,45 @@ manifest. Build through `build.sh`; a direct CMake configure will not set those.
 
 If JUCE is somewhere else, pass `-DVX_JUCE_DIR=...` to CMake, or edit `VX_JUCE_DIR`
 in `CMakeLists.txt`. If the toolchain moves, edit `TOOLS` in `build.sh`.
+
+### macOS
+
+The macOS script builds universal Apple Silicon + Intel VST3 and standalone
+bundles for macOS 11 or newer. Install Xcode Command Line Tools and CMake 3.22+,
+then get the same JUCE version used by the Windows build:
+
+```bash
+xcode-select --install   # if the developer tools are not installed yet
+brew install cmake
+git clone --depth 1 --branch 8.0.6 https://github.com/juce-framework/JUCE.git .tools/JUCE-8.0.6
+bash ./build-macos.sh
+bash ./build-macos.sh tests
+bash ./build-macos.sh smoke   # requires a graphical macOS session
+bash ./build-macos.sh clean   # remove build-macos/ and rebuild
+```
+
+The build uses Apple Clang and a separate `build-macos/` directory. Outputs:
+
+```text
+build-macos/Voxline_artefacts/Release/VST3/voxline.vst3
+build-macos/Voxline_artefacts/Release/Standalone/voxline.app
+```
+
+Set `VX_JUCE_DIR=/path/to/JUCE` to use another checkout. The script also accepts
+the existing `../SightLine/.tools/JUCE-8.0.6` checkout if the local copy is absent.
+The `tests` command can run without JUCE. Set `VX_MACOS_ARCHITECTURES=arm64` or
+`VX_MACOS_ARCHITECTURES=x86_64` for a single architecture, `JOBS=4` to limit build
+parallelism, or `MACOSX_DEPLOYMENT_TARGET` to change the minimum macOS version.
+For example:
+
+```bash
+VX_JUCE_DIR="$HOME/JUCE" VX_MACOS_ARCHITECTURES=arm64 bash ./build-macos.sh
+```
+
+Copy the complete `voxline.vst3` bundle into `~/Library/Audio/Plug-Ins/VST3/`
+for a local DAW to scan, and copy `voxline.app` into `/Applications` if desired.
+The script creates local builds; it does not sign, notarize, or publish them.
+The rolling GitHub release below still contains Windows builds only.
 
 ### Release build (CI)
 

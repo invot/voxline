@@ -25,6 +25,8 @@ target_include_directories(VoxlineTests PRIVATE Source third_party)
 
 if (NOT MSVC)
     target_compile_options(VoxlineTests PRIVATE -Wall -Wextra -Wno-unused-parameter)
+endif()
+if (MINGW)
     target_link_options(VoxlineTests PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 
@@ -46,6 +48,8 @@ if (EXISTS "${VX_JUCE_DIR}/CMakeLists.txt")
         NEEDS_MIDI_OUTPUT         FALSE
         IS_MIDI_EFFECT            FALSE
         EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+        MICROPHONE_PERMISSION_ENABLED TRUE
+        MICROPHONE_PERMISSION_TEXT "voxline needs audio input to process your voice."
         COPY_PLUGIN_AFTER_BUILD   FALSE
         FORMATS                   VST3 Standalone
         VST3_CATEGORIES           "Fx")
@@ -69,11 +73,13 @@ if (EXISTS "${VX_JUCE_DIR}/CMakeLists.txt")
         JUCE_REPORT_APP_USAGE=0
         JUCE_STRICT_REFCOUNTEDPOINTER=1)
 
-    set(VX_WIN_LIBS
-        wininet winmm ws2_32 ole32 oleaut32 uuid version shlwapi user32 gdi32
-        shell32 comdlg32 imm32 rstrtmgr dwmapi d2d1 d3d11 dxgi dcomp
-        windowscodecs setupapi crypt32 secur32 winhttp uxtheme oleacc propsys
-        hid shcore dbghelp comctl32 avrt ksuser)
+    if (WIN32)
+        set(VX_WIN_LIBS
+            wininet winmm ws2_32 ole32 oleaut32 uuid version shlwapi user32 gdi32
+            shell32 comdlg32 imm32 rstrtmgr dwmapi d2d1 d3d11 dxgi dcomp
+            windowscodecs setupapi crypt32 secur32 winhttp uxtheme oleacc propsys
+            hid shcore dbghelp comctl32 avrt ksuser)
+    endif()
 
     target_link_libraries(Voxline PRIVATE
         juce::juce_audio_utils
@@ -91,7 +97,7 @@ if (EXISTS "${VX_JUCE_DIR}/CMakeLists.txt")
             COMPILE_FLAGS "--include-dir=${CMAKE_CURRENT_SOURCE_DIR}/Source/platform")
     endif()
 
-    if (NOT MSVC)
+    if (MINGW)
         foreach (vxTarget Voxline Voxline_VST3 Voxline_Standalone)
             if (TARGET ${vxTarget})
                 target_link_options(${vxTarget} PRIVATE -static -static-libgcc -static-libstdc++)
@@ -134,7 +140,7 @@ if (EXISTS "${VX_JUCE_DIR}/CMakeLists.txt")
         juce::juce_recommended_warning_flags
         ${VX_WIN_LIBS})
 
-    if (NOT MSVC)
+    if (MINGW)
         target_link_options(VoxlineSmoke PRIVATE -static -static-libgcc -static-libstdc++)
     endif()
 
@@ -165,7 +171,7 @@ if (EXISTS "${VX_JUCE_DIR}/CMakeLists.txt")
         juce::juce_recommended_warning_flags
         ${VX_WIN_LIBS})
 
-    if (NOT MSVC)
+    if (MINGW)
         target_link_options(VoxlineIcon PRIVATE -static -static-libgcc -static-libstdc++)
     endif()
 
